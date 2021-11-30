@@ -11,10 +11,14 @@ function initdb(name::AbstractString)
     for command in CREATE_SQL
         DBInterface.execute(db, command)
     end
-    FStatus(db) # initialize home directory name and inode
+    SQLite.register(db, modestring)
+    
+    st = FStatus(db) # initialize home directory name and inode
+    create_rootnode(st, 0o04) # S_IFDIR
+    st
 end
 
-const CREATE_SQL = ["""
+CREATE_SQL = ["""
     PRAGMA FOREIGN_KEYS = TRUE;
     """,
     """
@@ -73,6 +77,14 @@ const CREATE_SQL = ["""
         WHEN new.nlinks = 0
         BEGIN
             DELETE FROM inode WHERE ino = old.ino;
+        END
+    ;
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS direntry_del DELETE ON direntry
+        WHEN old.ino IN (SELECT dino from direntry)
+        BEGIN
+            SELECT RAISE(FAIL, 'ino used as dino in table direntry');
         END
     ;
     """,
