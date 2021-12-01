@@ -2,10 +2,14 @@ export createnode, findnode, ls
 
 using Base.Filesystem
 import Base.Filesystem: S_IFDIR, S_IFREG, S_IFCHR, S_IFBLK, S_IFIFO, S_IFLNK, S_IFSOCK, S_IFMT
-import Base.Filesystem: S_IRWXO, S_IRWXG, S_IRWXO, S_IXUSR, S_IXGRP, S_IXOTH
+import Base.Filesystem: S_IRWXU, S_IRWXG, S_IRWXO
+import Base.Filesystem: S_IRUSR, S_IRGRP, S_IROTH
+import Base.Filesystem: S_IWUSR, S_IWGRP, S_IWOTH
+import Base.Filesystem: S_IXUSR, S_IXGRP, S_IXOTH
+import Base.Filesystem: S_ISUID, S_ISGID, S_ISVTX
 
 const X_UGO = S_IRWXU | S_IRWXG | S_IRWXO
-const X_NOX = X_UGO & ~UInt16(S_IXUSR | S_IXGRP | S_IXOTH)
+const X_NOX = X_UGO & ~((S_IXUSR | S_IXGRP | S_IXOTH) & X_UGO)
 
 const DIR1 = "."
 const DIR2 = ".."
@@ -15,7 +19,7 @@ const UMASK = _umask()
 
 """
 """
-function createnode(st::FStatus, path::AbstractString, mode::Integer=0)
+function createnode(st::FStatus, path::AbstractString, mode::Integer=0o10)
     db = st.db
     modef = defaultmode(mode)
     path = normpath(path)
@@ -39,14 +43,13 @@ function createnode(st::FStatus, path::AbstractString, mode::Integer=0)
     ino
 end
 
-function create_rootnode(st::FStatus, mode::Integer)
+function create_rootnode(st::FStatus, mode::Integer=0o040777)
     db = st.db
-    modef = defaultmode(mode)
+    modef = defaultmode(S_IFDIR | (mode & X_UGO))
     ino = findnode(st, DIRROOT)
     if ino == 0
         st.exception = nothing
         ino = 1
-        mode = mode | 0o4000
         SQLite.transaction(db) do
             DBInterface.execute(db, "INSERT INTO inode (ino, nlinks, mode) VALUES (?, 0, ?)", (ino, modef))
             DBInterface.execute(db, "INSERT INTO direntry
@@ -83,7 +86,6 @@ function rm2(st::FStatus, path::AbstractString; recursive::Bool=false)
     end
     ino
 end
-
 
 function Base.pwd(st::FStatus)
     st.dir
@@ -216,25 +218,42 @@ function defaultmode(x::Integer)
     Int(noperm | (perm & ~UMASK))
 end
 
-function modestring(x::Integer)
-    not = '-'
-    pcs = fill(not, 10)
-    t = x & S_IFMT
-    pcs[1] = t == S_IFDIR ? 'd' : t == S_IFREG ? '-' : t == S_IFCHR ? 'c' : t == S_IFBLK ? 'b' :
-             t == S_IFIFO ? 'p' : t == S_IFLNK ? 'l' : t == S_IFSOCK ? 's' : '?'
-  
-        for i = 1:3:9
-            x & (1<<(9-i)) != 0 && ( pcs[i+1] = 'r')
-        end
-        for i = 2:3:9
-            x & (1<<(9-i)) != 0 && ( pcs[i+1] = 'w')
-        end
-        for i = 3:3:9
-            ex = x & (1<<(9-i)) != 0
-            sp = x & (1 << (12 - i÷3)) != 0
-            if sp || ex
-                pcs[i+1] = !sp ? 'x' : i <= 6 ? (ex ? 's' : 'S') : (ex ? 't' : 'T')
-            end
-        end
-    String(pcs)
+function modestring(m::Integer)
+  @inbounds begin
+    N, r, w, x, s, S, t, T = UInt8.(('-', 'r', 'w', 'x', 's', 'S', 't', 'T'))
+    ri, di, li, pi, ci, bi, si, ui = UInt8.(('-', 'd', 'l', 'p', 'c', 'b', 's', '?'))
+    p = Vector{UInt8}(undef, 10)
+    f = (m % UInt16) & S_IFMT
+    p[1] = f == S_IFREG ? ri : f == S_IFDIR ? di : f == S_IFLNK ? li : f == S_IFIFO ? pi :
+           f == S_IFCHR ? ci : f == S_IFBLK ? bi : f == S_IFSOCK ? si : ui
+
+    p[2] = _select1(m, S_IRUSR, N, r)
+    p[3] = _select1(m, S_IWUSR, N, w)
+    p[4] = _select2(m, S_ISUID, S_IXUSR, N, x, S, s)
+    p[5] = _select1(m, S_IRGRP, N, r)
+    p[6] = _select1(m, S_IWGRP, N, w)
+    p[7] = _select2(m, S_ISGID, S_IXGRP, N, x, S, s)
+    p[8] = _select1(m, S_IROTH, N, r)
+    p[9] = _select1(m, S_IWOTH, N, w)
+    p[10] = _select2(m, S_ISVTX, S_IXOTH, N, x, T, t)
+    String(p)
+  end
+end
+
+@inline function _select1(x::T, m::Integer, a...) where T<:Integer
+    z = UInt8(trailing_zeros(m))
+    v = (x & T(m)) >>> z
+    w = v & 0x1 + 0x1
+    a[w]
+end
+
+@inline function _select2(x::T, m1::Integer, m2::Integer, a...) where T<:Integer
+    z1 = UInt8(trailing_zeros(m1))
+    z2 = UInt8(trailing_zeros(m2))
+    y = x & T(m1 | m2)
+    z = y >>> (z1 - z2 - 1)
+    u = z | y
+    v = u >>> z2
+    w = v & 0x3 + 0x1
+    a[w]
 end

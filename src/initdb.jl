@@ -1,7 +1,7 @@
 """
     initdb(name)
 
-Initialize database in file ǹame`.
+Initialize database in file `name`.
 Accept only empty database or database with SQLiteFs specific tables.
 All not-existing tables and other DB objects are created.
 Returns the db-session handle needed in all database statements.
@@ -12,9 +12,9 @@ function initdb(name::AbstractString)
         DBInterface.execute(db, command)
     end
     SQLite.register(db, modestring)
-    
+
     st = FStatus(db) # initialize home directory name and inode
-    create_rootnode(st, 0o04) # S_IFDIR
+    create_rootnode(st)
     st
 end
 
