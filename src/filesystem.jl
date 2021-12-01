@@ -26,12 +26,17 @@ function createnode(st::FStatus, path::AbstractString, mode::Integer=0o10)
     dir, name = dirbase(path)
     if dir == DIRROOT && name == DIR1
         return create_rootnode(st, modef)
-    elseif name == DIR2
+    elseif name == DIR2 || name == DIR1
         throw(ArgumentError("cannot create node named '$name'"))
-    end 
+    end
     dino = findnode(st, dir)
     if dino == 0
         throw(st.exception)
+    end
+    rowit = DBInterface.execute(db, "SELECT mode from inode WHERE ino = ?", (dino,))
+    mode = first(rowit).mode
+    if mode & S_IFMT != S_IFDIR
+        throw(ArgumentError("not a directory: $dir"))
     end
     ino = 0
     SQLite.transaction(db) do
@@ -43,7 +48,7 @@ function createnode(st::FStatus, path::AbstractString, mode::Integer=0o10)
     ino
 end
 
-function create_rootnode(st::FStatus, mode::Integer=0o040777)
+function create_rootnode(st::FStatus, mode::Integer=0o0777)
     db = st.db
     modef = defaultmode(S_IFDIR | (mode & X_UGO))
     ino = findnode(st, DIRROOT)
@@ -101,6 +106,17 @@ function Base.cd(st::FStatus, dir::AbstractString)
     end
 end
 
+function Base.chmod(st::FStatus, mode::Integer, src::AbstractString)
+    ino = findnode(st, src)
+    ino == 0 && throw(ArgumentError("source file '$src' does not exist"))
+    chmod(st, mode, ino)
+end
+
+function Base.chmod(st::FStatus, mode::Integer, ino::Integer)
+    db = st.db
+    DBInterface.execute(db, "UPDATE inode SET mode = updatemode(mode, ?) WHERE ino = ?", (mode, ino))
+end
+
 function Base.hardlink(st::FStatus, src::AbstractString, dst::AbstractString)
     ino = findnode(st, src)
     ino == 0 && throw(ArgumentError("source file '$src' does not exist"))
@@ -154,12 +170,11 @@ function ls(st::FStatus, dir::AbstractString=pwd(st))
     dino = findnode(st, dir)
     dino == 0 && throw(ArgumentError("destination dir $dir does not exist"))
     rowit = DBInterface.execute(db, "
-        SELECT modestring(mode) as mode, inode.ino, nlinks,
-        '.' FROM inode, direntry WHERE inode.ino = direntry.ino AND inode.ino = ?
+        SELECT modestring(mode) as mode, ino, nlinks,
+        '.' FROM inode WHERE ino = ?
         UNION ALL 
-        SELECT modestring(mode) as mode, inode.ino, nlinks,
-        '..' FROM inode, direntry WHERE inode.ino = direntry.ino AND inode.ino =
-        ( SELECT dino from direntry WHERE ino = ? )
+        SELECT modestring(mode) as mode, ino, nlinks,
+        '..' FROM inode WHERE ino = ( SELECT dino from direntry WHERE ino = ? )
         UNION ALL
         SELECT modestring(mode) as mode, inode.ino, nlinks,
         name FROM inode, direntry WHERE inode.ino = direntry.ino AND dino = ?
@@ -256,4 +271,8 @@ end
     v = u >>> z2
     w = v & 0x3 + 0x1
     a[w]
+end
+
+function updatemode(mode::T, update::Integer) where T<:Integer
+    T((mode & S_IFMT) | (update & ~S_IFMT))
 end

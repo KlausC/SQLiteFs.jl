@@ -12,12 +12,14 @@ function initdb(name::AbstractString)
         DBInterface.execute(db, command)
     end
     SQLite.register(db, modestring)
+    SQLite.register(db, updatemode)
 
     st = FStatus(db) # initialize home directory name and inode
     create_rootnode(st)
     st
 end
 
+# const TODO
 CREATE_SQL = ["""
     PRAGMA FOREIGN_KEYS = TRUE;
     """,
@@ -84,7 +86,7 @@ CREATE_SQL = ["""
     CREATE TRIGGER IF NOT EXISTS direntry_del DELETE ON direntry
         WHEN old.ino IN (SELECT dino from direntry)
         BEGIN
-            SELECT RAISE(FAIL, 'ino used as dino in table direntry');
+            SELECT RAISE(FAIL, 'directory is not empty');
         END
     ;
     """,
