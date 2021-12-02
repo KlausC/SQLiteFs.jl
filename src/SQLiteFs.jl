@@ -22,6 +22,7 @@ end
 
 include("initdb.jl")
 include("filesystem.jl")
+include("fuseapi.jl")
 
 
 end
