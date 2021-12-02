@@ -128,317 +128,320 @@ end
 struct FuseForgetData
 end
 
+struct FuseFlock
+end
+
 # C- entrypoints for all lowlevel callback functions
 
 F_INIT = 1
 function Cinit(userdata::Ref{Nothing}, conn::FuseConnInfo)
     try
-        call(F_INIT, userdata, confn)
+        fcallback(F_INIT, userdata, confn)
     finally
     end
 end
 F_DESTROY = 2
 function Cdestroy(userdata::Ref{Nothing})
     try
-        call(F_DESTROY, userdata)
+        fcallback(F_DESTROY, userdata)
     finally
     end
 end
 F_LOOKUP = 3
-function Clookup(req::Ptr{FUSE_REQ}, parent::FuseIno, name::String)
+function Clookup(req::Ptr{FuseReq}, parent::FuseIno, name::String)
     try
-        call(F_LOOKUP, req, parent, ino, name)
+        fcallback(F_LOOKUP, req, parent, ino, name)
     finally
     end
 end
 F_FORGET = 4
-function Cforget(req::Ptr{FUSE_REQ}, ino::FuseIno, lookup::UInt64)
+function Cforget(req::Ptr{FuseReq}, ino::FuseIno, lookup::UInt64)
     try
-        call(F_FORGET, req, ino, lookup)
+        fcallback(F_FORGET, req, ino, lookup)
     finally
     end
 end
 F_GETATTR = 5
-function Cgetattr(req::Ptr{FUSE_REQ}, ino::FuseIno, fi::FuseFileInfo)
+function Cgetattr(req::Ptr{FuseReq}, ino::FuseIno, fi::FuseFileInfo)
     try
-        call(F_GETATTR, req, ino, fi)
+        fcallback(F_GETATTR, req, ino, fi)
     finally
     end
 end
 F_SETATTR = 6
-function Csetattr(req::Ptr{FUSE_REQ}, ino::FuseIno, attr::FuseStat, to_set::Cint, fi::FuseFileInfo)
+function Csetattr(req::Ptr{FuseReq}, ino::FuseIno, attr::FuseStat, to_set::Cint, fi::FuseFileInfo)
     try
-        call(F_SETATTR, req, ino, attr, to_set, fi)
+        fcallback(F_SETATTR, req, ino, attr, to_set, fi)
     finally
     end
 end
 F_READLINK = 7
-function Creadlink(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Creadlink(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_READLINK, req, ino)
+        fcallback(F_READLINK, req, ino)
     finally
     end
 end
 F_MKNOD = 8
-function Cmknod(req::Ptr{FUSE_REQ}, parent::FuseIno, name::String, mode::FuseMode, rdev::FuseDev)
+function Cmknod(req::Ptr{FuseReq}, parent::FuseIno, name::String, mode::FuseMode, rdev::FuseDev)
     try
-        call(F_MKNOD, req, parent, name, mode, rdev)
+        fcallback(F_MKNOD, req, parent, name, mode, rdev)
     finally
     end
 end
 F_MKDIR = 9
-function Cmkdir(req::Ptr{FUSE_REQ}, parent::FuseIno, name::String, mode::FuseMode) 
+function Cmkdir(req::Ptr{FuseReq}, parent::FuseIno, name::String, mode::FuseMode) 
     try
-        call(F_MKDIR, req, parent, name, mode)
+        fcallback(F_MKDIR, req, parent, name, mode)
     finally
     end
 end
 F_UNLINK = 10
-function Cunlink(req::Ptr{FUSE_REQ}, parent::FuseIno, name::String)
+function Cunlink(req::Ptr{FuseReq}, parent::FuseIno, name::String)
     try
-        call(F_UNLINK, req, parent, name)
+        fcallback(F_UNLINK, req, parent, name)
     finally
     end
 end
 F_RMDIR = 11
-function Crmdir(req::Ptr{FUSE_REQ}, parent::FuseIno, name::String)
+function Crmdir(req::Ptr{FuseReq}, parent::FuseIno, name::String)
     try
-        call(F_RMDIR, req, parent, name)
+        fcallback(F_RMDIR, req, parent, name)
     finally
     end
 end
 F_SYMLINK = 12
-function Csymlink(req::Ptr{FUSE_REQ}, link::String, parent::FuseIno, name::String)
+function Csymlink(req::Ptr{FuseReq}, link::String, parent::FuseIno, name::String)
     try
-        call(F_SYMLINK, req, link, parent, name)
+        fcallback(F_SYMLINK, req, link, parent, name)
     finally
     end
 end
 F_RENAME = 13
-function Crename(req::Ptr{FUSE_REQ}, parent::FuseIno, name::String, newparent::FuseIno, newname::String, flags::Cuint)
+function Crename(req::Ptr{FuseReq}, parent::FuseIno, name::String, newparent::FuseIno, newname::String, flags::Cuint)
     try
-        call(F_RENAME, req, parent, name, newparent, newname, flags)
+        fcallback(F_RENAME, req, parent, name, newparent, newname, flags)
     finally
     end
 end
 F_LINK = 14
-function Clink(req::Ptr{FUSE_REQ}, ino::FuseIno, newparent::FuseIno, newname::String)
+function Clink(req::Ptr{FuseReq}, ino::FuseIno, newparent::FuseIno, newname::String)
     try
-        call(F_LINK, req, ino, newparent, newname)
+        fcallback(F_LINK, req, ino, newparent, newname)
     finally
     end
 end
 F_OPEN = 15
-function Copen(req::Ptr{FUSE_REQ}, ino::FuseIno, fi::FuseFileInfo)
+function Copen(req::Ptr{FuseReq}, ino::FuseIno, fi::FuseFileInfo)
     try
-        call(F_OPEN, req, ino, fi)
+        fcallback(F_OPEN, req, ino, fi)
     finally
     end
 end
 F_READ = 16
-function Cread(req::Ptr{FUSE_REQ}, ino::FuseIno, size::Csize_t, off::Csize_t, fi::FuseFileInfo)
+function Cread(req::Ptr{FuseReq}, ino::FuseIno, size::Csize_t, off::Csize_t, fi::FuseFileInfo)
     try
-        call(F_READ, req, ino, size, off, fi)
+        fcallback(F_READ, req, ino, size, off, fi)
     finally
     end
 end
 F_WRITE = 17
-function Cwrite(req::Ptr{FUSE_REQ}, ino::FuseIno, buf::Vector{UInt8}, size::Csize_t, off::Csize_t, fi::FuseFileInfo)
+function Cwrite(req::Ptr{FuseReq}, ino::FuseIno, buf::Vector{UInt8}, size::Csize_t, off::Csize_t, fi::FuseFileInfo)
     try
-        call(F_WRITE, req, ino, buf, size, off, fi)
+        fcallback(F_WRITE, req, ino, buf, size, off, fi)
     finally
     end
 end
 F_FLUSH = 18
-function Cflush(req::Ptr{FUSE_REQ}, ino::FuseIno, fi::FuseFileInfo)
+function Cflush(req::Ptr{FuseReq}, ino::FuseIno, fi::FuseFileInfo)
     try
-        call(F_FLUSH, req, ino, fi)
+        fcallback(F_FLUSH, req, ino, fi)
     finally
     end
 end
 F_RELEASE = 19
-function Crelease(req::Ptr{FUSE_REQ}, ino::FuseIno, fi::FuseFileInfo)
+function Crelease(req::Ptr{FuseReq}, ino::FuseIno, fi::FuseFileInfo)
     try
-        call(F_RELEASE, req, ino, fi)
+        fcallback(F_RELEASE, req, ino, fi)
     finally
     end
 end
 F_FSYNC = 20
-function Cfsync(req::Ptr{FUSE_REQ}, ino::FuseIno, datasync::Cint, fi::FuseFileInfo)
+function Cfsync(req::Ptr{FuseReq}, ino::FuseIno, datasync::Cint, fi::FuseFileInfo)
     try
-        call(F_FSYNC, req, ino, datasync, fi)
+        fcallback(F_FSYNC, req, ino, datasync, fi)
     finally
     end
 end
 F_OPENDIR = 21
-function Copendir(req::Ptr{FUSE_REQ}, ino::FuseIno, fi::FuseFileInfo)
+function Copendir(req::Ptr{FuseReq}, ino::FuseIno, fi::FuseFileInfo)
     try
-        call(F_OPENDIR, req, ino)
+        fcallback(F_OPENDIR, req, ino)
     finally
     end
 end
 F_READDIR = 22
-function Creaddir(req::Ptr{FUSE_REQ}, ino::FuseIno, size::Csize_t, off::Csize_t, fi::FuseFileInfo)
+function Creaddir(req::Ptr{FuseReq}, ino::FuseIno, size::Csize_t, off::Csize_t, fi::FuseFileInfo)
     try
-        call(F_READDIR, req, ino, size, off, fi)
+        fcallback(F_READDIR, req, ino, size, off, fi)
     finally
     end
 end
 F_RELEASEDIR = 23
-function Creleasedir(req::Ptr{FUSE_REQ}, ino::FuseIno, fi::FuseFileInfo)
+function Creleasedir(req::Ptr{FuseReq}, ino::FuseIno, fi::FuseFileInfo)
     try
-        call(F_RELEASEDIR, req, ino, fi)
+        fcallback(F_RELEASEDIR, req, ino, fi)
     finally
     end
 end
 F_FSYNCDIR = 24
-function Cfsyncdir(req::Ptr{FUSE_REQ}, ino::FuseIno, datasync::Cint, fi::FuseFileInfo)
+function Cfsyncdir(req::Ptr{FuseReq}, ino::FuseIno, datasync::Cint, fi::FuseFileInfo)
     try
-        call(F_FSYNCDIR, req, ino, datasync, fi)
+        fcallback(F_FSYNCDIR, req, ino, datasync, fi)
     finally
     end
 end
 F_STATFS = 25
-function Cstatfs(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Cstatfs(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_STATFS, req, ino)
+        fcallback(F_STATFS, req, ino)
     finally
     end
 end
 F_SETXATTR = 26
-function Csetxattr(req::Ptr{FUSE_REQ}, ino::FuseIno, name::String, value::String, size::Csize_t, flags::Cint)
+function Csetxattr(req::Ptr{FuseReq}, ino::FuseIno, name::String, value::String, size::Csize_t, flags::Cint)
     try
-        call(F_SETXATTR, req, ino, name, value, size, flags)
+        fcallback(F_SETXATTR, req, ino, name, value, size, flags)
     finally
     end
 end
 F_GETXATTR = 27
-function Cgetxattr(req::Ptr{FUSE_REQ}, ino::FuseIno, name::String, size::Csize_t)
+function Cgetxattr(req::Ptr{FuseReq}, ino::FuseIno, name::String, size::Csize_t)
     try
-        call(F_GETXATTR, req, ino, name, size)
+        fcallback(F_GETXATTR, req, ino, name, size)
     finally
     end
 end
 F_LISTXATTR = 28
-function Clistxattr(req::Ptr{FUSE_REQ}, ino::FuseIno, size::Csize_t)
+function Clistxattr(req::Ptr{FuseReq}, ino::FuseIno, size::Csize_t)
     try
-        call(F_LISTXATTR, req, ino, size)
+        fcallback(F_LISTXATTR, req, ino, size)
     finally
     end
 end
 F_REMOVEXATTR = 29
-function Cremovexattr(req::Ptr{FUSE_REQ}, ino::FuseIno, name::String)
+function Cremovexattr(req::Ptr{FuseReq}, ino::FuseIno, name::String)
     try
-        call(F_REMOVEXATTR, req, ino, name)
+        fcallback(F_REMOVEXATTR, req, ino, name)
     finally
     end
 end
 F_ACCESS = 30
-function Caccess(req::Ptr{FUSE_REQ}, ino::FuseIno, mask::Cint)
+function Caccess(req::Ptr{FuseReq}, ino::FuseIno, mask::Cint)
     try
-        call(F_ACCESS, req, ino)
+        fcallback(F_ACCESS, req, ino)
     finally
     end
 end
 F_CREATE = 31
-function Ccreate(req::Ptr{FUSE_REQ}, parent::FuseIno, name::String, mode::FuseMode, fi::FuseFileInfo)
+function Ccreate(req::Ptr{FuseReq}, parent::FuseIno, name::String, mode::FuseMode, fi::FuseFileInfo)
     try
-        call(F_CREATE, req, parent, name, mode, fi)
+        fcallback(F_CREATE, req, parent, name, mode, fi)
     finally
     end
 end
 F_GETLK = 32
-function Cgetlk(req::Ptr{FUSE_REQ}, ino::FuseIno, fi::FuseFileInfo, lock::FuseFlock)
+function Cgetlk(req::Ptr{FuseReq}, ino::FuseIno, fi::FuseFileInfo, lock::FuseFlock)
     try
-        call(F_GETLK, req, ino, fi, lock)
+        fcallback(F_GETLK, req, ino, fi, lock)
     finally
     end
 end
 F_SETLK = 33
-function Csetlk(req::Ptr{FUSE_REQ}, ino::FuseIno, fi::FuseFileInfo, lock::FuseFlock, sleep::Cint)
+function Csetlk(req::Ptr{FuseReq}, ino::FuseIno, fi::FuseFileInfo, lock::FuseFlock, sleep::Cint)
     try
-        call(F_SETLK, req, ino, fi, lock, sleep)
+        fcallback(F_SETLK, req, ino, fi, lock, sleep)
     finally
     end
 end
 F_BMAP = 34
-function Cbmap(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Cbmap(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_BMAP, req, ino)
+        fcallback(F_BMAP, req, ino)
     finally
     end
 end
 F_IOCTL = 35
-function Cioctl(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Cioctl(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_IOCTL, req, ino)
+        fcallback(F_IOCTL, req, ino)
     finally
     end
 end
 F_POLL = 36
-function Cpoll(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Cpoll(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_POLL, req, ino)
+        fcallback(F_POLL, req, ino)
     finally
     end
 end
 F_WRITE_BUF = 37
-function Cwrite_buf(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Cwrite_buf(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_WRITE_BUF, req, ino)
+        fcallback(F_WRITE_BUF, req, ino)
     finally
     end
 end
 F_RETRIEVE_REPLY = 38
-function Cretrieve_reply(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Cretrieve_reply(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_RETRIEVE_REPLY, req, ino)
+        fcallback(F_RETRIEVE_REPLY, req, ino)
     finally
     end
 end
 F_FORGET_MULTI = 39
-function Cforget_multi(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Cforget_multi(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_FORGET_MULTI, req, ino)
+        fcallback(F_FORGET_MULTI, req, ino)
     finally
     end
 end
 F_FLOCK = 40
-function Cflock(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Cflock(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_FLOCK, req, ino)
+        fcallback(F_FLOCK, req, ino)
     finally
     end
 end
 F_FALLOCATE = 41
-function Cfallocate(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Cfallocate(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_FALLOCATE, req, ino)
+        fcallback(F_FALLOCATE, req, ino)
     finally
     end
 end
 F_READDIRPLUS = 42
-function Creaddirplus(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Creaddirplus(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_READDIRPLUS, req, ino)
+        fcallback(F_READDIRPLUS, req, ino)
     finally
     end
 end
 F_COPY_FILE_RANGE = 43
-function Ccopy_file_range(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Ccopy_file_range(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_COPY_FILE_RANGE, req, ino)
+        fcallback(F_COPY_FILE_RANGE, req, ino)
     finally
     end
 end
 F_LSEEK = 44
-function Clseek(req::Ptr{FUSE_REQ}, ino::FuseIno)
+function Clseek(req::Ptr{FuseReq}, ino::FuseIno)
     try
-        call(F_LSEEK, req, ino)
+        fcallback(F_LSEEK, req, ino)
     finally
     end
 end
-
+F_SIZE = 44
 
 # to become const
 ALL_FLO = FuseLowlevelOps(
@@ -521,11 +524,19 @@ const FUSE_IOCTL_DIR = (1 << 4)
 const FUSE_IOCTL_MAX_IOV = 256
 
 noop(args...) = nothing
-const REGISTERED = Vector{Function}(noop, F_SIZE)
+const REGISTERED = Function[noop for i = 1:F_SIZE]
+regops() = REGISTERED
 # utility functions
-function call(which::Int, args...)
-    REGISTERED[which](args...)
+function fcallback(which::Int, args...)
+    regops()[which](args...)
 end
 function register(which::Int, f::Function)
-    REGISTERED[which] = f
+    regops()[which] = f
 end
+
+function FuseLowlevelOps(all::FuseLowlevelOps, reg::Vector{Function})
+    ip = enumerate(fieldnames(FuseLowlevelOps))
+    ops = [reg[i] == noop ? CFunction(0) : getfield(all, p) for (i, p) in ip]
+    FuseLowlevelOps(ops...)
+end
+
