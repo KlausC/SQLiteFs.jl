@@ -7,8 +7,12 @@ mutable struct FStatus
     dir::String
     ino::Int
     exception::Union{Nothing,Exception}
-    FStatus(db) = new(db, "/", 1, nothing)
+    FStatus(db) = new(db, DIRROOT, ROOT_INO, nothing)
 end
+
+include("initdb.jl")
+include("filesystem.jl")
+include("fuseapi.jl")
 
 function _umask()
     umask = mktempdir() do tmp
@@ -19,10 +23,7 @@ function _umask()
     umask
 end
 
-
-include("initdb.jl")
-include("filesystem.jl")
-include("fuseapi.jl")
-
-
+function __init__()
+    eval(:(const UMASK = _umask()))
+end
 end

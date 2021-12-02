@@ -14,18 +14,17 @@ const X_NOX = X_UGO & ~((S_IXUSR | S_IXGRP | S_IXOTH) & X_UGO)
 const DIR1 = "."
 const DIR2 = ".."
 const DIRROOT = "/"
+const ROOT_INO = 1
 
-const UMASK = _umask()
+const DEFAULT_MODE = S_IFREG | X_UGO
 
 """
 """
-function createnode(st::FStatus, path::AbstractString, mode::Integer=0o10)
-    db = st.db
-    modef = defaultmode(mode)
+function createnode(st::FStatus, path::AbstractString, mode::Integer=DEFAULT_MODE)
     path = normpath(path)
     dir, name = dirbase(path)
     if dir == DIRROOT && name == DIR1
-        return create_rootnode(st, modef)
+        return create_rootnode(st, mode)
     elseif name == DIR2 || name == DIR1
         throw(ArgumentError("cannot create node named '$name'"))
     end
@@ -33,58 +32,73 @@ function createnode(st::FStatus, path::AbstractString, mode::Integer=0o10)
     if dino == 0
         throw(st.exception)
     end
+    createnode(st, dino, name, mode)
+end
+
+function createnode(st::FStatus, dino::Integer, file::AbstractString, mode::Integer=DEFAULT_MODE)
+    db = st.db
+    mode = defaultmode(mode)
     rowit = DBInterface.execute(db, "SELECT mode from inode WHERE ino = ?", (dino,))
-    mode = first(rowit).mode
-    if mode & S_IFMT != S_IFDIR
+    dmode = first(rowit).mode
+    if dmode & S_IFMT != S_IFDIR
         throw(ArgumentError("not a directory: $dir"))
     end
     ino = 0
     SQLite.transaction(db) do
-        DBInterface.execute(db, "INSERT INTO inode (nlinks, mode) VALUES (0, ?)", (modef,))
+        DBInterface.execute(db, "INSERT INTO inode (nlinks, mode) VALUES (0, ?)", (mode,))
         ino = SQLite.last_insert_rowid(db)
         DBInterface.execute(db, "INSERT INTO direntry
-                                 (dino, name, ino) VALUES(?, ?, ?)", [dino, name, ino])
+                                 (dino, name, ino) VALUES(?, ?, ?)", [dino, file, ino])
     end
     ino
 end
 
-function create_rootnode(st::FStatus, mode::Integer=0o0777)
+function create_rootnode(st::FStatus, mode::Integer=X_UGO)
     db = st.db
-    modef = defaultmode(S_IFDIR | (mode & X_UGO))
+    modef = defaultmode(S_IFDIR | (mode & ~S_IFMT))
     ino = findnode(st, DIRROOT)
     if ino == 0
         st.exception = nothing
-        ino = 1
+        ino = ROOT_INO
         SQLite.transaction(db) do
             DBInterface.execute(db, "INSERT INTO inode (ino, nlinks, mode) VALUES (?, 0, ?)", (ino, modef))
             DBInterface.execute(db, "INSERT INTO direntry
                                      (dino, name, ino) VALUES(?, ?, ?)", [ino, DIRROOT, ino])
         end
-    elseif ino != 1
+    elseif ino != ROOT_INO
         throw(ArgumentError("invalide root node (ino = $ino)"))
     end
     ino
 end
 
 function Base.rm(st::FStatus, path::AbstractString; force::Bool=false, recursive::Bool=false)
-    ino = findnode(st, path)
+    dir, name = dirbase(path)
+    dino = findnode(st, dir)
+    dino == 0 && throw(ArgumentError("dir $dir does not exist"))
+    rm(st, dino, name; force, recursive)
+end
+
+function Base.rm(st::FStatus, dino::Integer, file::AbstractString; force::Bool=false, recursive::Bool=false)
+    ino = findnode(st, dino, file)
     if ino == 0
         if !force
-            throw(ArgumentError("file '$path' does not exist"))
+            throw(ArgumentError("file '$file' does not exist"))
         end
     else
-        rm2(st, path; recursive)
+        rm2(st, file; recursive)
     end
 end
 
 function rm2(st::FStatus, path::AbstractString; recursive::Bool=false)
-    db = st.db
+
     dir, name = dirbase(path)
     dino = findnode(st, dir)
     ino = findnode(st, path)
     if dino == 0 || ino == 0
         throw(ArgumentError("file $path does not exist"))
     end
+
+    db = st.db
     SQLite.transaction(db) do
         DBInterface.execute(db, "DELETE FROM direntry WHERE dino = ? AND name = ?", (dino, name))
         DBInterface.execute(db, "DELETE FROM inode WHERE ino = ? AND nlinks = 0", (ino,))
@@ -136,7 +150,7 @@ function Base.hardlink(st::FStatus, inode::Integer, path::AbstractString)
 end
 
 function Base.mv(st::FStatus, src::AbstractString, dst::AbstractString; force::Bool=false)
-    db = st.db
+
     sdir, sname = dirbase(src)
     sdino = findnode(st, sdir)
     if sdino == 0
@@ -147,6 +161,11 @@ function Base.mv(st::FStatus, src::AbstractString, dst::AbstractString; force::B
     if ddino == 0
         throw(ArgumentError("destination dir $ddir does not exist"))
     end
+    mv(st, sdino, sname, ddino, dname,; force)
+end
+
+function Base.mv(st::FStatus, sdino::Integer, sname, ddino::Integer, dname; force::Bool=false)
+    db = st.db
     DBInterface.execute(db,
                 "UPDATE direntry SET dino = ?, name = ? WHERE dino = ? AND name = ?",
                 (ddino, dname, sdino, sname)
@@ -165,6 +184,12 @@ function Base.readdir(st::FStatus, dir::AbstractString=pwd(st); join::Bool=false
     entries
 end
 
+"""
+    ls(st::FStatus[, dir])
+
+Return `DataFrame` with readable file info for all files in `dir`.
+Default to working directory.
+"""
 function ls(st::FStatus, dir::AbstractString=pwd(st))
     db = st.db
     dino = findnode(st, dir)
@@ -183,6 +208,11 @@ function ls(st::FStatus, dir::AbstractString=pwd(st))
      DataFrame(rowit)
 end
 
+"""
+    findnode(st::FStatus, path)
+
+Return inode number for given path or 0, if none exists.
+"""
 function findnode(st::FStatus, dir::AbstractString)
     dirs = splitpath(normpath(dir))
     ino = st.ino
@@ -190,27 +220,38 @@ function findnode(st::FStatus, dir::AbstractString)
         if d == DIR1
             continue
         elseif d == DIRROOT
-            ino = 1
+            ino = ROOT_INO
             if length(dirs) > 1
                 continue
             end
         end
-        try
-            row = if d == DIR2
-                DBInterface.execute(st.db, "SELECT dino AS ino FROM direntry WHERE ino = ?", (ino,))
-            else
-                DBInterface.execute(st.db, "SELECT ino FROM direntry WHERE dino = ? AND name = ?", (ino, d))
-            end
-            ino = first(row).ino
-        catch ex
-            st.exception = ArgumentError("$d does not exist\n$ex")
-            ino = 0
-            break
-        end
+        ino = findnode(st, ino, d)
+        ino == 0 && break
     end
     ino
 end
 
+function findnode(st::FStatus, dino::Integer, name::AbstractString)
+    ino = 0
+    try
+        row = if name == DIR2
+            DBInterface.execute(st.db, "SELECT dino AS ino FROM direntry WHERE ino = ?", (dino,))
+        else
+            DBInterface.execute(st.db, "SELECT ino FROM direntry WHERE dino = ? AND name = ?", (dino, name))
+        end
+        ino = first(row).ino
+    catch ex
+        st.exception = ArgumentError("$name does not exist\n$ex")
+        ino = 0
+    end
+    ino
+end
+
+"""
+    dirbase(path)
+
+Split `path` in `dir` and `base` part.
+"""
 function dirbase(path::AbstractString)
     path = normpath(path)
     dir, name = dirname(path), basename(path)
@@ -226,7 +267,7 @@ end
 function defaultmode(x::Integer)
     perm = x & X_UGO
     noperm = x & ~X_UGO
-    if noperm == 0
+    if 0 <= x < 16
         noperm =  perm << 12
         perm = noperm == S_IFDIR ? X_UGO : X_NOX
     end
