@@ -111,8 +111,8 @@ struct FuseConnInfo
     reserved::NTuple{22,Cuint}
 end
 struct FuseFileInfo
-    flags::Int32
-    bits::UInt64
+    flags::Cint
+    bits::Cuint
     fh::UInt64
     lock_owner::UInt64
     poll_events::UInt32
@@ -491,38 +491,46 @@ ALL_FLO = FuseLowlevelOps(
     (@cfunction Clseek Cvoid (Ptr{FuseReq}, FuseIno, Culong, Cint, Ptr{FuseFileInfo}))
 )
 
+# bit masks for 2nd field of FuseFileInfo
+const FUSE_FI_WRITEPAGE = Cuint(1 << 0)
+const FUSE_FI_DIRECT_IO = Cuint(1 << 1)
+const FUSE_FI_KEEP_CACHE = Cuint(1 << 2)
+const FUSE_FI_FLUSH = Cuint(1 << 3)
+const FUSE_FI_NONSEEKABLE = Cuint(1 << 4)
+const FUSE_FI_CACHE_READDIR = Cuint(1 << 5)
 
 # Capability bits for 'fuse_conn_info.capable' and 'fuse_conn_info.want'
  
-const FUSE_CAP_ASYNC_READ = (1 << 0)
-const FUSE_CAP_POSIX_LOCKS = (1 << 1)
-const FUSE_CAP_ATOMIC_O_TRUNC = (1 << 3)
-const FUSE_CAP_EXPORT_SUPPORT = (1 << 4)
-const FUSE_CAP_DONT_MASK = (1 << 6)
-const FUSE_CAP_SPLICE_WRITE = (1 << 7)
-const FUSE_CAP_SPLICE_MOVE = (1 << 8)
-const FUSE_CAP_SPLICE_READ = (1 << 9)
-const FUSE_CAP_FLOCK_LOCKS = (1 << 10)
-const FUSE_CAP_IOCTL_DIR = (1 << 11)
-const FUSE_CAP_AUTO_INVAL_DATA = (1 << 12)
-const FUSE_CAP_READDIRPLUS = (1 << 13)
-const FUSE_CAP_READDIRPLUS_AUTO = (1 << 14)
-const FUSE_CAP_ASYNC_DIO = (1 << 15)
-const FUSE_CAP_WRITEBACK_CACHE = (1 << 16)
-const FUSE_CAP_NO_OPEN_SUPPORT = (1 << 17)
-const FUSE_CAP_PARALLEL_DIROPS = (1 << 18)
-const FUSE_CAP_POSIX_ACL = (1 << 19)
-const FUSE_CAP_HANDLE_KILLPRIV = (1 << 20)
-const FUSE_CAP_CACHE_SYMLINKS = (1 << 23) 
-const FUSE_CAP_NO_OPENDIR_SUPPORT = (1 << 24)
-const FUSE_CAP_EXPLICIT_INVAL_DATA = (1 << 25)
+const FUSE_CAP_ASYNC_READ = Cuint(1 << 0)
+const FUSE_CAP_POSIX_LOCKS = Cuint(1 << 1)
+const FUSE_CAP_ATOMIC_O_TRUNC = Cuint(1 << 3)
+const FUSE_CAP_EXPORT_SUPPORT = Cuint(1 << 4)
+const FUSE_CAP_DONT_MASK = Cuint(1 << 6)
+const FUSE_CAP_SPLICE_WRITE = Cuint(1 << 7)
+const FUSE_CAP_SPLICE_MOVE = Cuint(1 << 8)
+const FUSE_CAP_SPLICE_READ = Cuint(1 << 9)
+const FUSE_CAP_FLOCK_LOCKS = Cuint(1 << 10)
+const FUSE_CAP_IOCTL_DIR = Cuint(1 << 11)
+const FUSE_CAP_AUTO_INVAL_DATA = Cuint(1 << 12)
+const FUSE_CAP_READDIRPLUS = Cuint(1 << 13)
+const FUSE_CAP_READDIRPLUS_AUTO = Cuint(1 << 14)
+const FUSE_CAP_ASYNC_DIO = Cuint(1 << 15)
+const FUSE_CAP_WRITEBACK_CACHE = Cuint(1 << 16)
+const FUSE_CAP_NO_OPEN_SUPPORT = Cuint(1 << 17)
+const FUSE_CAP_PARALLEL_DIROPS = Cuint(1 << 18)
+const FUSE_CAP_POSIX_ACL = Cuint(1 << 19)
+const FUSE_CAP_HANDLE_KILLPRIV = Cuint(1 << 20)
+const FUSE_CAP_CACHE_SYMLINKS = Cuint(1 << 23) 
+const FUSE_CAP_NO_OPENDIR_SUPPORT = Cuint(1 << 24)
+const FUSE_CAP_EXPLICIT_INVAL_DATA = Cuint(1 << 25)
  
-const FUSE_IOCTL_COMPAT = (1 << 0)
-const FUSE_IOCTL_UNRESTRICTED = (1 << 1)
-const FUSE_IOCTL_RETRY = (1 << 2)
-const FUSE_IOCTL_DIR = (1 << 4)
+const FUSE_IOCTL_COMPAT = Cuint(1 << 0)
+const FUSE_IOCTL_UNRESTRICTED = Cuint(1 << 1)
+const FUSE_IOCTL_RETRY = Cuint(1 << 2)
+const FUSE_IOCTL_DIR = Cuint(1 << 4)
 const FUSE_IOCTL_MAX_IOV = 256
 
+# dummy function - should never by actually called
 noop(args...) = nothing
 const REGISTERED = Function[noop for i = 1:F_SIZE]
 regops() = REGISTERED

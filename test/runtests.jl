@@ -2,5 +2,5 @@ using SQLiteFs
 using Test
 
 @testset "SQLiteFs.jl" begin
-    # Write your tests here.
+    include("cstruct.jl")
 end
