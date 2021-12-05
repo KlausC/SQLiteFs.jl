@@ -3,6 +3,20 @@ export FuseLowlevelOps
 
 const CFunction = Ptr{Nothing}
 
+struct FuseLoopConfig
+    clone_fd::Cint
+    max_idle_threads::Cuint
+end
+
+struct FuseCmdlineOpts
+end
+
+struct FuseArgs
+    argc::Cint
+    argv::Ptr{Cstring}
+    allocated::Cint
+end
+
 struct FuseLowlevelOps
     init::CFunction
     destroy::CFunction
