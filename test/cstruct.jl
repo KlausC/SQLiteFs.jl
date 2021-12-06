@@ -2,8 +2,9 @@
 
 struct A1 <: Layout
     a::Bool
-    b::Int32
+    b::Cint
     c::Float64
+    d::Cstring
 end
 
 
@@ -11,15 +12,22 @@ end
     a = fill(UInt64(0), 3)
     p = pointer_from_vector(a)
     cs = CStruct{A1}(p)
+    @test cs.a == 0
+    @test cs.b == 0
+    @test cs.c == 0
+    @test cs.d == ""
     v1 = true
     v2 = 0x12345678
     v3 = 47.11
+    v4 = "hallo"
     cs.a = v1
     cs.b = v2
     cs.c = v3
+    cs.d = v4
     @test cs.a == v1
     @test cs.b == v2
     @test cs.c == v3
+    @test cs.d == v4
 end
 
 @testset "index access" begin

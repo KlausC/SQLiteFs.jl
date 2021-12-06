@@ -27,6 +27,9 @@ struct L6 <: Layout
     a::LVarVector{Int,1}
     b::Int
 end
+struct L7 <: Layout
+    a::Ptr{Ptr{Int}}
+end
 
 @testset "simple layout templates" begin
     @test_throws ArgumentError is_template_fixed(L0)
@@ -42,6 +45,7 @@ end
     @test_throws UndefVarError is_template_fixed(L4)
     @test !is_template_fixed(L5)
     @test_throws ArgumentError is_template_fixed(L6)
+    @test_throws ArgumentError is_template_fixed(L7)
     @test is_template_fixed(LFixedVector{L1,1})
     @test is_template_fixed(LFixedVector{L5,0})
     @test !is_template_fixed(LFixedVector{L5,1})

@@ -82,13 +82,12 @@ end
 size(cv::CVector) = (length(cv),)
 
 """
-    pointer(::CAccessor)
-    parent(::CAccessor)
+    pointer(::Union{CStruct,CVector})
     length(::CVector)
-    accessing the internal fields of accessors
+
+get the internal fields of accessors
 """
 pointer(cs::CAccessor) = getfield(cs, :pointer)
-parent(cs::CAccessor) = getfield(cs, :parent)
 length(cv::CVector) = getfield(cv, :length)
 
 function Base.show(io::IO, x::CStruct{T}) where T
@@ -97,10 +96,8 @@ function Base.show(io::IO, x::CStruct{T}) where T
     nf = length(T.types)
     px = pointer(x)
     if !Base.show_circular(io, x)
-        #pax = parent(x)
-        #println(typeof(x), " ", pointer(x), pax===nothing ? nothing : pointer(pax))
         recur_io = IOContext(io, Pair{Symbol,Any}(:SHOWN_SET, x),
-                                Pair{Symbol,Any}(:typeinfo, Any))
+                                 Pair{Symbol,Any}(:typeinfo, Any))
         for i in 1:nf
             f = fieldname(T, i)
             show(recur_io, getproperty(x, f))
@@ -110,11 +107,6 @@ function Base.show(io::IO, x::CStruct{T}) where T
         end
     end
     print(io, ')')
-end
-
-import Base: ==
-function ==(a::CStruct{T}, b::CStruct{S}) where {T,S}
-    T == S && pointer(a) == pointer(b)
 end
 
 function Base.show(io::IO, x::CVector{T}) where T
@@ -143,15 +135,27 @@ For primitive types simply load value, convert to Julia accessor if required.
 For struct types, create CStruct accessor.
 For vector types, create CVector accessor.
 """
-function get_from_pointer(fp::Ptr, parent)
-    FT = reftype(fp)
+function get_from_pointer(fp::Ptr{FT}, parent) where FT <: Ptr
+    v = unsafe_load(fp)
+    v == C_NULL ? nothing : get_from_pointer(v, parent)
+end
+
+function get_from_pointer(fp::Ptr{FT}, parent) where {T,FT<:LVector{T}}
+    CVector{T}(fp, length(FT, parent))
+end
+
+function get_from_pointer(fp::Ptr{FT}, parent) where FT <: Layout
+    CStruct{FT}(fp)
+end
+
+function get_from_pointer(fp::Ptr{FT}, parent) where FT <: Cstring
+    v = unsafe_load(fp)
+    v == Cstring(C_NULL) ? "" : Base.unsafe_string(Ptr{UInt8}(v))
+end
+
+function get_from_pointer(fp::Ptr{FT}, parent) where FT
     if isprimitivetype(FT)
-        v = unsafe_load(fp)
-        jconvert(FT, parent, v)
-    elseif FT <: LVector
-        CVector{eltype(FT)}(fp, length(FT, parent))
-    elseif FT <: Layout
-        CStruct{FT}(fp)
+        unsafe_load(fp)
     else
         throw(ArgumentError("not supported layout type: $FT"))
     end
@@ -162,10 +166,9 @@ end
 
 Convert to C primitive or composed object. Store bytes at memory position.
 """
-function set_at_pointer!(fp::Ptr, v)
-    FT = reftype(fp)
-    v = Base.unsafe_convert(FT, Base.cconvert(FT, v))
-    unsafe_store!(fp, v)
+function set_at_pointer!(fp::Ptr{FT}, v) where FT
+    w = Base.unsafe_convert(FT, Base.cconvert(FT, v))
+    unsafe_store!(fp, w)
 end
 
 """
@@ -184,17 +187,6 @@ end
 function pointer_for_index(cv::CVector{T}, i::Integer) where T
     Ptr{T}(getfield(cv, :pointer) + sizeof(T) * (i - 1))
 end
-
-reftype(::Ptr{T}) where T = T
-
-jconvert(::Type, parent, v) = v
-jconvert(::Type{Cstring}, parent, v) = v == C_NULL ? "" : Base.unsafe_string(v)
-jconvert(::Type{Ptr{Cstring}}, parent, v) = v == C_NULL ? "" : CVector{Cstring}(v)
-
-function jconvert(::Type{Ptr{S}}, parent, v) where {T,S<:LVector{T}}
-    v == C_NULL ? nothing : CVector{T}(v, length(S, parent))
-end
-jconvert(::Type{Ptr{S}}, parent, v) where {S<:Layout} = v == C_NULL ? nothing : CStruct{S}(v)
 
 Base.unsafe_convert(::Type{Ptr{T}}, cs::CStruct{T}) where T = getfield(cs, :pointer) 
 Base.unsafe_convert(::Type{Ptr{Vector{T}}}, cs::CVector{T}) where T = getfield(cs, :pointer) 

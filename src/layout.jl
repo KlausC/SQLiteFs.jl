@@ -55,13 +55,14 @@ const TEMPLATE_FIXED = true
 const TEMPLATE_VAR = false
 """
     is_template_variable(type)
+
 Has the layout described by `type` a variable size
 (for example variable sized vector in last field of a struct)?
 """
 is_template_variable(T::Type) = !is_template_fixed(T)
 
 """
-    is_template_fixed_size(type)
+    is_template_fixed(type)
 
 Has the layout described by `type` a fixed size.
 """
@@ -71,13 +72,14 @@ function is_template_fixed(::Type{T}, dup) where T
     TEMPLATE_FIXED
 end
 function is_template_fixed(::Type{S}, dup) where {T,S<:Ptr{T}}
+    T <: Ptr && throw(ArgumentError("$S is not a supported layout type"))
     get!(dup, S) do
         dup[S] = TEMPLATE_FIXED
         is_template_fixed(T, dup)
         TEMPLATE_FIXED
     end
 end
-function is_template_fixed(::Type{S}, dup) where {T,S<:LForwardReference{T}}
+function is_template_fixed(::Type{S}, dup) where {S<:LForwardReference}
     is_template_fixed(Ptr{reftype(S)}, dup)
 end
 function is_template_fixed(::Type{S}, dup) where {T,N,S<:LFixedVector{T,N}}
