@@ -1,58 +1,46 @@
 
-export CStruct, CVector, Layout, CAccessor, pointer_from_vector
-export LForwardReference, LFixedVector, LVarVector
+export Caccessor, CStruct, CVector
+export pointer_from_vector
 
-import Base: length, getproperty, setproperty!
-
-"""
-    CAccessor
-
-Abstract type for julia objects used to access fields and vector elements of C-structures,
-which are based by plain C memory. Memory layout is described by `Layout` structs.
-"""
-abstract type CAccessor end
-"""
-    Layout
-
-All structs used to describe the memory layout (of a C-data structure) need to be
-subtypes of this.
-Some controlling objects used in such templates to describe vectors and pointers
-have also this type.
-A `Layout` structure and a memory pointer are needed to construct an `CAccessor` object.
-"""
-abstract type Layout end
+import Base: length, getproperty, setproperty!, size, length
 
 """
-    CStruct{T}(p::Ptr)
+CStruct{T}(p::Ptr)
 
-    Given a C-type pointer `p` to a C-struct and the equivalent Julia struct
-    with the same memory layout `T`, provide read and write access to the fields.
-    `T` must be a bits type.
+Given a C-type pointer `p` to a C-struct and the equivalent Julia struct
+with the same memory layout `T`, provide read and write access to the fields.
+`T` must be a bits type.
 
-    Example:
-    struct T <: Layout
-        a::Cint
-        b::Cdouble
-    end
+Example:
+struct T <: Layout
+    a::Cint
+    b::Cdouble
+end
 
-    a = Vector{UInt8}(undef, 100)
-    p = pointer_from_vector(a) # usually the data are coming from C
-    cs = CStruct{T}(p)
+a = Vector{UInt8}(undef, 100)
+p = pointer_from_vector(a) # usually the data are coming from C
+cs = CStruct{T}(p)
 
-    cs.a = 1234
-    cs.b = 3.5
-    
+cs.a = 1234
+cs.b = 3.5
 """
-struct CStruct{T} <: CAccessor
-    p::Ptr{Nothing}
+
+struct CStruct{T}
+    pointer::Ptr{Nothing}
     function CStruct{T}(p::Ptr) where T
         isbitstype(T) || throw(ArgumentError("$T is not a bitstype"))
         new{T}(p)
     end
 end
 
-struct CVector{T} <: CAccessor
-    p::Ptr{Nothing}
+"""
+    CVector
+
+Abstract vector type for julia objects used to access elements of C-vectors,
+which are based by plain C memory. Memory layout is described by `Layout` structs.
+"""
+struct CVector{T} <: AbstractVector{T}
+    pointer::Ptr{Nothing}
     length::Int
     function CVector{T}(p::Ptr, length::Integer=-1) where T
         isbitstype(T) || throw(ArgumentError("$T is not a bitstype"))
@@ -60,30 +48,16 @@ struct CVector{T} <: CAccessor
     end
 end
 
-
-# Layout Elements
-struct LFixedVector{T,N} <: Layout
-    p::NTuple{N,T}
-end
-Base.length(::Type{LFixedVector{T,N}}) where {T,N} = N
-struct LVarVector{T,F} <: Layout
-    p::NTuple{0,T}
-end
-Base.length(::Type{LVarVector{T,F}}, x) where {T,F} = F(x)
-struct LForwardReference{L} <: Layout
-    p::Ptr{Nothing}
-end
-reftype(::Type{LForwardReference{L}}) where {L} = eval(L)
-
+const CAccessor = Union{CStruct, CVector}
 # accessing the fields represented by CStruct
-# to access the pointer use function `ptr`
+# to access the pointer use function `pointer`
 function Base.propertynames(::CStruct{T}) where T
     fieldnames(T)
 end
 
 function Base.getproperty(cs::CStruct{T}, field::Symbol) where T
     fp = pointer_for_field(cs, field)
-    get_from_pointer(fp)
+    get_from_pointer(fp, cs)
 end
 
 function Base.setproperty!(cs::CStruct{T}, field::Symbol, v) where T
@@ -93,7 +67,7 @@ end
 
 function Base.getindex(cv::CVector{T}, i::Integer) where T
     p = pointer_for_index(cv, i)
-    get_from_pointer(p)
+    get_from_pointer(p, cv)
 end
 
 function Base.getindex(cv::CVector{T}, r::OrdinalRange) where T
@@ -105,19 +79,26 @@ function Base.setindex!(cv::CVector{T}, v, i::Integer) where T
     set_at_pointer!(p, v)
 end
 
+size(cv::CVector) = (length(cv),)
+
 """
-    ptr(::CAccessor)
+    pointer(::CAccessor)
+    parent(::CAccessor)
     length(::CVector)
     accessing the internal fields of accessors
 """
-ptr(cs::CAccessor) = getfield(cs, :p)
-Base.length(cv::CVector) = getfield(cv, :length)
+pointer(cs::CAccessor) = getfield(cs, :pointer)
+parent(cs::CAccessor) = getfield(cs, :parent)
+length(cv::CVector) = getfield(cv, :length)
 
 function Base.show(io::IO, x::CStruct{T}) where T
     show(io, typeof(x))
     print(io, '(')
     nf = length(T.types)
+    px = pointer(x)
     if !Base.show_circular(io, x)
+        #pax = parent(x)
+        #println(typeof(x), " ", pointer(x), pax===nothing ? nothing : pointer(pax))
         recur_io = IOContext(io, Pair{Symbol,Any}(:SHOWN_SET, x),
                                 Pair{Symbol,Any}(:typeinfo, Any))
         for i in 1:nf
@@ -129,6 +110,11 @@ function Base.show(io::IO, x::CStruct{T}) where T
         end
     end
     print(io, ')')
+end
+
+import Base: ==
+function ==(a::CStruct{T}, b::CStruct{S}) where {T,S}
+    T == S && pointer(a) == pointer(b)
 end
 
 function Base.show(io::IO, x::CVector{T}) where T
@@ -154,18 +140,20 @@ end
     get_from_pointer(::Ptr{T})
 
 For primitive types simply load value, convert to Julia accessor if required.
-For Vector types, create CVector accessor.
 For struct types, create CStruct accessor.
+For vector types, create CVector accessor.
 """
-function get_from_pointer(fp::Ptr)
+function get_from_pointer(fp::Ptr, parent)
     FT = reftype(fp)
     if isprimitivetype(FT)
         v = unsafe_load(fp)
-        jconvert(FT, v)
-    elseif FT isa Vector
-        CVector{eltype(FT)}(fp)
-    else
+        jconvert(FT, parent, v)
+    elseif FT <: LVector
+        CVector{eltype(FT)}(fp, length(FT, parent))
+    elseif FT <: Layout
         CStruct{FT}(fp)
+    else
+        throw(ArgumentError("not supported layout type: $FT"))
     end
 end
 
@@ -190,23 +178,26 @@ within struct type `T`.
 function pointer_for_field(cs::CStruct{T}, field::Symbol) where T
     i = findfirst(Base.Fix1(isequal, field), fieldnames(T))
     i === nothing && throw(ArgumentError("type $T has no field $field"))
-    Ptr{fieldtype(T, i)}(getfield(cs, :p) + fieldoffset(T, i))
+    Ptr{fieldtype(T, i)}(getfield(cs, :pointer) + fieldoffset(T, i))
 end
 
 function pointer_for_index(cv::CVector{T}, i::Integer) where T
-    Ptr{T}(getfield(cv, :p) + sizeof(T) * (i - 1))
+    Ptr{T}(getfield(cv, :pointer) + sizeof(T) * (i - 1))
 end
 
 reftype(::Ptr{T}) where T = T
 
-jconvert(::Type, v) = v
-jconvert(::Type{Cstring}, v) = v == C_NULL ? "" : Base.unsafe_string(v)
-jconvert(::Type{Ptr{Vector{T}}}, v) where T = v == C_NULL ? nothing : CVector{T}(v)
-jconvert(::Type{Ptr{T}}, v) where T = v == C_NULL ? nothing : CStruct{T}(v)
-jconvert(::Type{T}, v) where T<:CStruct = T(v)
+jconvert(::Type, parent, v) = v
+jconvert(::Type{Cstring}, parent, v) = v == C_NULL ? "" : Base.unsafe_string(v)
+jconvert(::Type{Ptr{Cstring}}, parent, v) = v == C_NULL ? "" : CVector{Cstring}(v)
 
-Base.unsafe_convert(::Type{Ptr{T}}, cs::CStruct{T}) where T = getfield(cs, :p) 
-Base.unsafe_convert(::Type{Ptr{Vector{T}}}, cs::CVector{T}) where T = getfield(cs, :p) 
+function jconvert(::Type{Ptr{S}}, parent, v) where {T,S<:LVector{T}}
+    v == C_NULL ? nothing : CVector{T}(v, length(S, parent))
+end
+jconvert(::Type{Ptr{S}}, parent, v) where {S<:Layout} = v == C_NULL ? nothing : CStruct{S}(v)
+
+Base.unsafe_convert(::Type{Ptr{T}}, cs::CStruct{T}) where T = getfield(cs, :pointer) 
+Base.unsafe_convert(::Type{Ptr{Vector{T}}}, cs::CVector{T}) where T = getfield(cs, :pointer) 
 """
     p = pointer_from_vector(a::Vector{T})::Ptr{T}
 

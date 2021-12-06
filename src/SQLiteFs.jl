@@ -13,6 +13,7 @@ end
 include("initdb.jl")
 include("filesystem.jl")
 include("fuseapi.jl")
+include("layout.jl")
 include("cstruct.jl")
 
 function _umask()
