@@ -10,11 +10,11 @@ mutable struct FStatus
     FStatus(db) = new(db, DIRROOT, ROOT_INO, nothing)
 end
 
-include("initdb.jl")
-include("filesystem.jl")
-include("fuseapi.jl")
 include("layout.jl")
 include("cstruct.jl")
+include("fuseapi.jl")
+include("initdb.jl")
+include("filesystem.jl")
 
 function _umask()
     umask = mktempdir() do tmp

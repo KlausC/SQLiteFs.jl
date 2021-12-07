@@ -1,3 +1,4 @@
 /Manifest.toml
 sqlfs.sqlite
 sqlfs.save
+src/testlib.so
