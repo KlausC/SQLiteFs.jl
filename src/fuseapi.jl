@@ -1,7 +1,9 @@
 
-export FuseLowlevelOps
+export FuseLowlevelOps, register, main_loop, filter_ops
 
-const CFunction = Ptr{Nothing}
+import Base.CFunction
+
+const CFu = Ptr{Cvoid}
 
 struct FuseLoopConfig <: Layout
     clone_fd::Cint
@@ -28,62 +30,89 @@ end
 struct FuseSession <: Layout
 end
 struct FuseLowlevelOps
-    init::CFunction
-    destroy::CFunction
-    lookup::CFunction
-    forget::CFunction
-    getattr::CFunction
-    setattr::CFunction
-    readlink::CFunction
-    mknod::CFunction
-    mkdir::CFunction
-    unlink::CFunction
-    rmdir::CFunction
-    symlink::CFunction
-    rename::CFunction
-    link::CFunction
-    open::CFunction
-    read::CFunction
-    write::CFunction
-    flush::CFunction
-    release::CFunction
-    fsync::CFunction
-    opendir::CFunction
-    readdir::CFunction
-    releasedir::CFunction
-    fsyncdir::CFunction
-    statfs::CFunction
-    setxattr::CFunction
-    getxattr::CFunction
-    listxattr::CFunction
-    removexattr::CFunction
-    access::CFunction
-    create::CFunction
-    getlk::CFunction
-    setlk::CFunction
-    bmap::CFunction
-    ioctl::CFunction
-    poll::CFunction
-    write_buf::CFunction
-    retrieve_reply::CFunction
-    forget_multi::CFunction
-    flock::CFunction
-    fallocate::CFunction
-    readdirplus::CFunction
-    copy_file_range::CFunction
-    lseek::CFunction
+    init::CFu
+    destroy::CFu
+    lookup::CFu
+    forget::CFu
+    getattr::CFu
+    setattr::CFu
+    readlink::CFu
+    mknod::CFu
+    mkdir::CFu
+    unlink::CFu
+    rmdir::CFu
+    symlink::CFu
+    rename::CFu
+    link::CFu
+    open::CFu
+    read::CFu
+    write::CFu
+    flush::CFu
+    release::CFu
+    fsync::CFu
+    opendir::CFu
+    readdir::CFu
+    releasedir::CFu
+    fsyncdir::CFu
+    statfs::CFu
+    setxattr::CFu
+    getxattr::CFu
+    listxattr::CFu
+    removexattr::CFu
+    access::CFu
+    create::CFu
+    getlk::CFu
+    setlk::CFu
+    bmap::CFu
+    ioctl::CFu
+    poll::CFu
+    write_buf::CFu
+    retrieve_reply::CFu
+    forget_multi::CFu
+    flock::CFu
+    fallocate::CFu
+    readdirplus::CFu
+    copy_file_range::CFu
+    lseek::CFu
 end
 
 const FuseIno = UInt64
 const FuseMode = UInt32
 const FuseDev = UInt64
 
+const Cuid_t = UInt32
+const Cgid_t = UInt32
+const Coff_t = Csize_t
+const Coff64_t = UInt64
+const Cpid_t = Cint
+
+struct FuseBufFlags
+    flag::Cint
+end
+const FUSE_BUF_IS_FD = FuseBufFlags(1 << 1)
+const FUSE_BUF_FD_SEEK = FuseBufFlags(1 << 2)
+const FUSE_BUF_FD_RETRY = FuseBufFlags(1 << 3)
+
+struct FuseBufCopyFlags
+    flag::Cint
+end
+const FUSE_BUF_NO_SPLICE = FuseBufCopyFlags(1 << 1)
+const FUSE_BUF_FORCE_SPLICE = FuseBufCopyFlags(1 << 2)
+const FUSE_BUF_SPLICE_MOVE = FuseBufCopyFlags(1 << 3)
+const FUSE_BUF_SPLICE_NONBLOCK = FuseBufCopyFlags(1 << 4)
+
+"""
+    FuseReq
+
+Opaque structure containing the pointer as obtained by fuselib.
+"""
 struct FuseReq
+    pointer::Ptr{Nothing}
 end
 
 struct Timespec <: Layout
     seconds::Int64
-    ns::Int32
+    ns::Int64
 end
 
 struct FuseCtx <: Layout
@@ -94,12 +123,13 @@ struct FuseCtx <: Layout
 end
 
 struct FuseStat <: Layout
-    device  :: UInt64
-    inode   :: UInt64
+    dev     :: UInt64
+    ino     :: UInt64
+    nlink   :: UInt64
     mode    :: FuseMode
-    nlink   :: UInt32
     uid     :: UInt32
     gid     :: UInt32
+    pad0    :: UInt32
     rdev    :: UInt64
     size    :: Int64
     blksize :: Int64
@@ -113,7 +143,7 @@ struct FuseEntryParam <: Layout
     generation::UInt64
     attr::FuseStat
     attr_timeout::Cdouble
-    attr_entry_timeout::Cdouble
+    entry_timeout::Cdouble
 end
 struct FuseConnInfo <: Layout
     proto_major::Cuint
@@ -135,18 +165,38 @@ struct FuseFileInfo <: Layout
     lock_owner::UInt64
     poll_events::UInt32
 end
+
 struct FuseFileStruct
 end
+
 struct Flock
+    type::Cshort
+    whence::Cshort
+    start::Coff64_t
+    len::Coff64_t
+    pid::Cpid_t
 end
-struct FusePollHandle
+struct FuseIovec
 end
-struct FuseBufvec
-end
-struct FuseForgetData
+struct FuseStatvfs
 end
 
-struct FuseFlock
+struct FusePollHandle
+end
+struct FuseBuf <: Layout
+    size::Csize_t
+    flags::FuseBufFlags
+    mem::Ptr{Cvoid}
+    fd::Cint
+    pos::Coff_t
+end
+struct FuseBufvec <: Layout
+    count::Csize_t
+    idx::Csize_t
+    off::Csize_t
+    buf::LVarVector{FuseBuf}
+end
+struct FuseForgetData
 end
 
 # C- entrypoints for all lowlevel callback functions
@@ -154,6 +204,7 @@ end
 F_INIT = 1
 function Cinit(userdata::Ptr{Nothing}, conn::Ptr{Nothing})
     try
+        println("Cinit called")
         fcallback(F_INIT, userdata, CStruct{FuseConnInfo}(conn))
     finally
     end
@@ -166,11 +217,21 @@ function Cdestroy(userdata::Ptr{Nothing})
     end
 end
 F_LOOKUP = 3
-function Clookup(req::Ptr{Nothing}, parent::FuseIno, name::Cstring)
+function Clookup(req::FuseReq, parent::FuseIno, name::Cstring)
+    error = Base.UV_ENOTSUP
+    name = unsafe_string(name)
     try
-        fcallback(F_LOOKUP, CStruct{FuseReq}(req), parent, unsafe_string(name))
+        println("Clookup called req=$req parent=$parent name=$name")
+        entry = CStruct{FuseEntryParam}(pointer_from_vector(create_bytes(FuseEntryParam, ())))
+        error = fcallback(F_LOOKUP, req, parent, name, entry)
+        println("back from lookup entry=$(error == 0 ? entry : "")")
+        error == 0 && fuse_reply_entry(req, entry)
+        error == 0 && println("after fuse_reply_entry")
     finally
+        error != 0 && fuse_reply_err(req, -error)
+        error != 0 && println("fuse_reply_err(req, $(-error))")
     end
+    nothing
 end
 F_FORGET = 4
 function Cforget(req::Ptr{Nothing}, ino::FuseIno, lookup::UInt64)
@@ -183,6 +244,7 @@ F_GETATTR = 5
 function Cgetattr(req::Ptr{Nothing}, ino::FuseIno, fi::FuseFileInfo)
     try
         fcallback(F_GETATTR, CStruct{FuseReq}(req), ino, fi)
+        # fuse_reply_attr(req, attr, attr_timeout)
     finally
     end
 end
@@ -190,6 +252,7 @@ F_SETATTR = 6
 function Csetattr(req::Ptr{Nothing}, ino::FuseIno, attr::FuseStat, to_set::Cint, fi::FuseFileInfo)
     try
         fcallback(F_SETATTR, CStruct{FuseReq}(req), ino, attr, to_set, fi)
+        # fuse_reply_attr(req, attr, attr_timeout)
     finally
     end
 end
@@ -459,55 +522,56 @@ function Clseek(req::Ptr{Nothing}, ino::FuseIno)
     finally
     end
 end
+
 F_SIZE = 44
 
 # to become const
-ALL_FLO = FuseLowlevelOps(
-    (@cfunction Cinit Cvoid (Ptr{Nothing}, Ptr{FuseConnInfo})),
+ALL_FLO() = [
+    (@cfunction Cinit Cvoid (Ptr{Nothing}, Ptr{Nothing})),
     (@cfunction Cdestroy Cvoid (Ptr{Nothing},)),
-    (@cfunction Clookup Cvoid (Ptr{FuseReq}, FuseIno, Cstring)),
-    (@cfunction Cforget Cvoid (Ptr{FuseReq}, FuseIno, Culong)),
-    (@cfunction Cgetattr Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseFileInfo})),
-    (@cfunction Csetattr Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseStat}, Cint, Ptr{FuseFileInfo})),
-    (@cfunction Creadlink Cvoid (Ptr{FuseReq}, FuseIno)),
-    (@cfunction Cmknod Cvoid (Ptr{FuseReq}, FuseIno, Cstring, FuseMode, FuseDev)),
-    (@cfunction Cmkdir Cvoid (Ptr{FuseReq}, FuseIno, Cstring, FuseMode)),
-    (@cfunction Cunlink Cvoid (Ptr{FuseReq}, FuseIno, Cstring)),
-    (@cfunction Crmdir Cvoid (Ptr{FuseReq}, FuseIno, Cstring)),
-    (@cfunction Csymlink Cvoid (Ptr{FuseReq}, Cstring, FuseIno, Cstring)),
-    (@cfunction Crename Cvoid (Ptr{FuseReq}, FuseIno, Cstring, FuseIno, Cstring)),
-    (@cfunction Clink Cvoid (Ptr{FuseReq}, FuseIno, FuseIno, Cstring)),
-    (@cfunction Copen Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseFileInfo})),
-    (@cfunction Cread Cvoid (Ptr{FuseReq}, FuseIno, Culong, Culong)),
-    (@cfunction Cwrite Cvoid (Ptr{FuseReq}, FuseIno, Cstring, Culong, Culong, Ptr{FuseFileInfo})),
-    (@cfunction Cflush Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseFileInfo})),
-    (@cfunction Crelease Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseFileInfo})),
-    (@cfunction Cfsync Cvoid (Ptr{FuseReq}, FuseIno, Cint, Ptr{FuseFileInfo})),
-    (@cfunction Copendir Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseFileInfo})),
-    (@cfunction Creaddir Cvoid (Ptr{FuseReq}, FuseIno, Culong, Culong, Ptr{FuseFileInfo})),
-    (@cfunction Creleasedir Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseFileInfo})),
-    (@cfunction Cfsyncdir Cvoid (Ptr{FuseReq}, FuseIno, Cint, Ptr{FuseFileInfo})),
-    (@cfunction Cstatfs Cvoid (Ptr{FuseReq}, FuseIno)),
-    (@cfunction Csetxattr Cvoid (Ptr{FuseReq}, FuseIno, Cstring, Cstring, Culong, Cint)),
-    (@cfunction Cgetxattr Cvoid (Ptr{FuseReq}, FuseIno, Cstring, Culong)),
-    (@cfunction Clistxattr Cvoid (Ptr{FuseReq}, FuseIno, Culong)),
-    (@cfunction Cremovexattr Cvoid (Ptr{FuseReq}, FuseIno, Cstring)),
-    (@cfunction Caccess Cvoid (Ptr{FuseReq}, FuseIno, Cint)),
-    (@cfunction Ccreate Cvoid (Ptr{FuseReq}, FuseIno, Cstring, FuseMode, Ptr{FuseFileStruct})),
-    (@cfunction Cgetlk Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseFileInfo}, Ptr{Flock})),
-    (@cfunction Csetlk Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseFileInfo}, Ptr{Flock}, Cint)),
-    (@cfunction Cbmap Cvoid (Ptr{FuseReq}, FuseIno, Culong, Culong)),
-    (@cfunction Cioctl Cvoid (Ptr{FuseReq}, FuseIno, Cuint, Ptr{Cvoid}, Ptr{FuseFileInfo}, Cuint, Ptr{Cvoid}, Culong, Culong)),
-    (@cfunction Cpoll Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseFileInfo}, Ptr{FusePollHandle})),
-    (@cfunction Cwrite_buf Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseBufvec}, Culong, Ptr{FuseFileInfo})),
-    (@cfunction Cretrieve_reply Cvoid (Ptr{FuseReq}, Ptr{Cvoid}, FuseIno, Culong, Ptr{FuseBufvec})),
-    (@cfunction Cforget_multi Cvoid (Ptr{FuseReq}, Culong, Ptr{FuseForgetData})),
-    (@cfunction Cflock Cvoid (Ptr{FuseReq}, FuseIno, Ptr{FuseFileInfo})),
-    (@cfunction Cfallocate Cvoid (Ptr{FuseReq}, FuseIno, Cint, Culong, Culong, Ptr{FuseFileInfo})),
-    (@cfunction Creaddirplus Cvoid (Ptr{FuseReq}, FuseIno, Culong, Culong,Ptr{FuseFileInfo})),
-    (@cfunction Ccopy_file_range Cvoid (Ptr{FuseReq}, FuseIno, Culong, Ptr{FuseFileInfo}, FuseIno, Culong, Ptr{FuseFileInfo}, Culong, Cint)),
-    (@cfunction Clseek Cvoid (Ptr{FuseReq}, FuseIno, Culong, Cint, Ptr{FuseFileInfo}))
-)
+    (@cfunction Clookup  Cvoid (FuseReq, FuseIno, Cstring)),
+    (@cfunction Cforget Cvoid (FuseReq, FuseIno, Culong)),
+    (@cfunction Cgetattr Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo})),
+    (@cfunction Csetattr Cvoid (FuseReq, FuseIno, Ptr{FuseStat}, Cint, Ptr{FuseFileInfo})),
+    (@cfunction Creadlink Cvoid (FuseReq, FuseIno)),
+    (@cfunction Cmknod Cvoid (FuseReq, FuseIno, Cstring, FuseMode, FuseDev)),
+    (@cfunction Cmkdir Cvoid (FuseReq, FuseIno, Cstring, FuseMode)),
+    (@cfunction Cunlink Cvoid (FuseReq, FuseIno, Cstring)),
+    (@cfunction Crmdir Cvoid (FuseReq, FuseIno, Cstring)),
+    (@cfunction Csymlink Cvoid (FuseReq, Cstring, FuseIno, Cstring)),
+    (@cfunction Crename Cvoid (FuseReq, FuseIno, Cstring, FuseIno, Cstring)),
+    (@cfunction Clink Cvoid (FuseReq, FuseIno, FuseIno, Cstring)),
+    (@cfunction Copen Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo})),
+    (@cfunction Cread Cvoid (FuseReq, FuseIno, Culong, Culong)),
+    (@cfunction Cwrite Cvoid (FuseReq, FuseIno, Cstring, Culong, Culong, Ptr{FuseFileInfo})),
+    (@cfunction Cflush Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo})),
+    (@cfunction Crelease Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo})),
+    (@cfunction Cfsync Cvoid (FuseReq, FuseIno, Cint, Ptr{FuseFileInfo})),
+    (@cfunction Copendir Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo})),
+    (@cfunction Creaddir Cvoid (FuseReq, FuseIno, Culong, Culong, Ptr{FuseFileInfo})),
+    (@cfunction Creleasedir Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo})),
+    (@cfunction Cfsyncdir Cvoid (FuseReq, FuseIno, Cint, Ptr{FuseFileInfo})),
+    (@cfunction Cstatfs Cvoid (FuseReq, FuseIno)),
+    (@cfunction Csetxattr Cvoid (FuseReq, FuseIno, Cstring, Cstring, Culong, Cint)),
+    (@cfunction Cgetxattr Cvoid (FuseReq, FuseIno, Cstring, Culong)),
+    (@cfunction Clistxattr Cvoid (FuseReq, FuseIno, Culong)),
+    (@cfunction Cremovexattr Cvoid (FuseReq, FuseIno, Cstring)),
+    (@cfunction Caccess Cvoid (FuseReq, FuseIno, Cint)),
+    (@cfunction Ccreate Cvoid (FuseReq, FuseIno, Cstring, FuseMode, Ptr{FuseFileStruct})),
+    (@cfunction Cgetlk Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo}, Ptr{FuseFlock})),
+    (@cfunction Csetlk Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo}, Ptr{FuseFlock}, Cint)),
+    (@cfunction Cbmap Cvoid (FuseReq, FuseIno, Culong, Culong)),
+    (@cfunction Cioctl Cvoid (FuseReq, FuseIno, Cuint, Ptr{Cvoid}, Ptr{FuseFileInfo}, Cuint, Ptr{Cvoid}, Culong, Culong)),
+    (@cfunction Cpoll Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo}, Ptr{FusePollHandle})),
+    (@cfunction Cwrite_buf Cvoid (FuseReq, FuseIno, Ptr{FuseBufvec}, Culong, Ptr{FuseFileInfo})),
+    (@cfunction Cretrieve_reply Cvoid (FuseReq, Ptr{Cvoid}, FuseIno, Culong, Ptr{FuseBufvec})),
+    (@cfunction Cforget_multi Cvoid (FuseReq, Culong, Ptr{FuseForgetData})),
+    (@cfunction Cflock Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo})),
+    (@cfunction Cfallocate Cvoid (FuseReq, FuseIno, Cint, Culong, Culong, Ptr{FuseFileInfo})),
+    (@cfunction Creaddirplus Cvoid (FuseReq, FuseIno, Culong, Culong,Ptr{FuseFileInfo})),
+    (@cfunction Ccopy_file_range Cvoid (FuseReq, FuseIno, Culong, Ptr{FuseFileInfo}, FuseIno, Culong, Ptr{FuseFileInfo}, Culong, Cint)),
+    (@cfunction Clseek Cvoid (FuseReq, FuseIno, Culong, Cint, Ptr{FuseFileInfo}))
+]
 
 # bit masks for 2nd field of FuseFileInfo
 const FUSE_FI_WRITEPAGE = Cuint(1 << 0)
@@ -567,9 +631,10 @@ end
 register(f::Function) = register(nameof(f), f)
 
 function FuseLowlevelOps(all::FuseLowlevelOps, reg::Vector{Function})
-    ip = enumerate(fieldnames(FuseLowlevelOps))
-    ops = [reg[i] == noop ? CFunction(0) : getfield(all, p) for (i, p) in ip]
-    FuseLowlevelOps(ops...)
+    FuseLowlevelOps(filter_ops(all, reg)...)
+end
+function filter_ops(all::Vector, reg::Vector{Function})
+    [reg[i] == noop ? C_NULL : all[i] for i in eachindex(all)]
 end
 
 function create_args(CMD::String, ARGS::AbstractVector{String})
@@ -586,9 +651,12 @@ end
 function main_loop()
 
     fuseargs = SQLiteFs.create_args("command", ["mounti"])
+    ops = filter_ops(ALL_FLO(), regops())
+    println("OPS for Clookup: $(ops[F_LOOKUP])")
+
     se = ccall((:fuse_session_new, :libfuse3), Ptr{Nothing},
-        (Ref{SQLiteFs.FuseArgs}, Ref{SQLiteFs.FuseLowlevelOps}, Cint, Ptr{Nothing}),
-        fuseargs, FuseLowlevelOps(SQLiteFs.ALL_FLO, SQLiteFs.regops()), 44, C_NULL)
+        (Ref{FuseArgs}, Ptr{CFu}, Cint, Ptr{Nothing}),
+        fuseargs, ops, 44, C_NULL)
 
     rc = ccall((:fuse_session_mount, :libfuse3), Cint, (Ptr{Nothing}, Cstring), se, "mountpoint")
     rc = ccall((:fuse_session_loop, :libfuse3), Cint, (Ptr{Nothing},), se)
@@ -596,3 +664,92 @@ function main_loop()
     ccall((:fuse_session_unmount, :libfuse3), Cvoid, (Ptr{Nothing},), se)
     ccall((:fuse_session_destroy, :libfuse3), Cvoid, (Ptr{Nothing},), se)
 end
+
+# reply functions to be called inside callback functions
+
+function fuse_reply_attr(req::FuseReq, attr::CStruct{FuseStat}, attr_timeout::Real)
+    ccall((:fuse_reply_attr, :libfuse3), Cint, (FuseReq, Ptr{FuseStat}, Cdouble), req, attr, attr_timeout)
+end
+function fuse_reply_bmap(req::FuseReq, idx::Integer)
+    ccall((:fuse_reply_bmap, :libfuse3), Cint, (FuseReq, UInt64), req, idx)
+end
+function fuse_reply_buf(req::FuseReq, buf::Vector{UInt8}, size::Integer)
+    ccall((:fuse_reply_entry, :libfuse3), Cint, (FuseReq, Ptr{UInt8}, Csize_t), req, buf, size)
+end
+function fuse_reply_create(req::FuseReq, e::CStruct{FuseEntryParam}, fi::CStruct{FuseFileInfo})
+    ccall((:fuse_reply_create, :libfuse3), Cint, (FuseReq, Ptr{FuseEntryParam}, Ptr{FuseFileInfo}), req, e, fi)
+end
+function fuse_reply_data(req::FuseReq, bufv::CStruct{FuseBufvec}, flags::FuseBufCopyFlags)
+    ccall((:fuse_reply_data, :libfuse3), Cint, (FuseReq, Ptr{FuseBufvec}, Cint), req, bufv, flags)
+end
+function fuse_reply_entry(req::FuseReq, entry::CStruct{FuseEntryParam})
+    ccall((:fuse_reply_entry, :libfuse3), Cint, (FuseReq, Ptr{FuseEntryParam}), req, entry)
+end
+function fuse_reply_err(req::FuseReq, err::Integer)
+    ccall((:fuse_reply_err, :libfuse3), Cint, (FuseReq, Cint), req, err)
+end
+function fuse_reply_ioctl(req::FuseReq, result::Integer, buf::CStruct, size::Integer)
+    ccall((:fuse_reply_ioctl, :libfuse3), Cint, (FuseReq, Cint, Ptr{Nothing}, Csize_t), req, result, buf, size)
+end
+function fuse_reply_ioctl_iov(req::FuseReq, result::Integer, iov::CStruct{FuseIovec}, count::Integer)
+    ccall((:fuse_reply_ioctl_iov, :libfuse3), Cint, (FuseReq, Cint, Ptr{FuseIovec}, Cint), req, result, iov, count)
+end
+function fuse_reply_ioctl_retry(req::FuseReq, in_iov::CStruct{FuseIovec}, in_count::Integer, out_iov::CStruct{FuseIovec}, out_count::Integer)
+    ccall((:fuse_reply_ioctl_retry, :libfuse3), Cint, (FuseReq, Ptr{FuseIovec}, Csize_t, Ptr{FuseIovec}, Csize_t), req, in_iov, in_count, out_iov, out_count)
+end
+function fuse_reply_iov(req::FuseReq, iov::CStruct{FuseIovec}, count::Integer)
+    ccall((:fuse_reply_iov, :libfuse3), Cint, (FuseReq, Ptr{FuseIovec}, Cint), req, iov, count)
+end
+function fuse_reply_lock(req::FuseReq, lock::CStruct{FuseFlock})
+    ccall((:fuse_reply_lock, :libfuse3), Cint, (FuseReq, Ptr{FuseFlock}), req, lock)
+end
+function fuse_reply_lseek(req::FuseReq, off::Integer)
+    ccall((:fuse_reply_lseek, :libfuse3), Cint, (FuseReq, Coff_t), req, off)
+end
+function fuse_reply_none(req::FuseReq)
+    ccall((:fuse_reply_none, :libfuse3), Cint, (FuseReq, ), req)
+end
+function fuse_reply_open(req::FuseReq, fi::CStruct{FuseFileInfo})
+    ccall((:fuse_reply_open, :libfuse3), Cint, (FuseReq, Ptr{FuseFileInfo}), req, fi)
+end
+function fuse_reply_poll(req::FuseReq, revents::Integer )
+    ccall((:fuse_reply_entry, :libfuse3), Cint, (FuseReq, Cuint), req, revents)
+end
+function fuse_reply_readlink(req::FuseReq, link::String)
+    ccall((:fuse_reply_readlink, :libfuse3), Cint, (FuseReq, Cstring), req, link)
+end
+function fuse_reply_statfs(req::FuseReq, stbuf::CStruct{FuseStatvfs})
+    ccall((:fuse_reply_statfs, :libfuse3), Cint, (FuseReq, Ptr{FuseStatvfs}), req, stbuf)
+end
+function fuse_reply_write(req::FuseReq, count::Integer)
+    ccall((:fuse_reply_write, :libfuse3), Cint, (FuseReq, Csize_t), req, count)
+end
+function fuse_reply_xattr(req::FuseReq, count::Integer)
+    ccall((:fuse_reply_xattr, :libfuse3), Cint, (FuseReq, Csize_t), req, count)
+end
+
+# accessors for req
+function fuse_req_ctx(req::FuseReq)
+    CStruct{FuseCtx}(ccall((:fuse_req_ctx, :libfuse3), Ptr{FuseCtx}, (FuseReq,), req))
+end
+function fuse_req_getgroups(req::FuseReq, list::Vector{Cgid_t})
+    ccall((:fuse_req_getgroups, :libfuse3), Cint, (FuseReq, Cint, Ptr{Cgid_t}), req, length(list), pointer_from_vector(list))
+end
+function fuse_req_interrupt_func(req::FuseReq, func::Ptr{Nothing}, data::Any)
+    ccall((:fuse_req_ctx, :libfuse3), Cvoid, (FuseReq, Ptr{Nothing}, Ptr{Nothing}), req, func, data)
+end
+function fuse_req_interrupted(req::FuseReq)
+    ccall((:fuse_req_interrupted, :libfuse3), Cint, (FuseReq,), req)
+end
+function fuse_req_userdata(req::FuseReq)
+    ccall((:fuse_req_userdata, :libfuse3), Ptr{Nothing}, (FuseReq,), req)
+end
+function fuse_req_userdata(req::FuseReq, ::Type{T}) where T
+    unsafe_pointer_to_objref(ccall((:fuse_req_userdata, :libfuse3), Ptr{T}, (FuseReq,), req))
+end
+
+
+
+
+
+# Base.unsafe_convert(::Type{Ptr{FuseReq}}, cs::FuseReq) where T = Ptr{FuseReq}(cs.pointer)
