@@ -85,6 +85,8 @@ const Cgid_t = UInt32
 const Coff_t = Csize_t
 const Coff64_t = UInt64
 const Cpid_t = Cint
+const Cfsblkcnt_t = UInt64
+const Cfsfilcnt_t = UInt64
 
 struct FuseBufFlags
     flag::Cint
@@ -122,7 +124,7 @@ struct FuseCtx <: Layout
     umask::FuseMode
 end
 
-struct FuseStat <: Layout
+struct Cstat <: Layout
     dev     :: UInt64
     ino     :: UInt64
     nlink   :: UInt64
@@ -141,7 +143,7 @@ end
 struct FuseEntryParam <: Layout
     ino::FuseIno
     generation::UInt64
-    attr::FuseStat
+    attr::Cstat
     attr_timeout::Cdouble
     entry_timeout::Cdouble
 end
@@ -166,19 +168,30 @@ struct FuseFileInfo <: Layout
     poll_events::UInt32
 end
 
-struct FuseFileStruct
-end
-
-struct Flock
+struct Cflock
     type::Cshort
     whence::Cshort
     start::Coff64_t
     len::Coff64_t
     pid::Cpid_t
 end
-struct FuseIovec
+struct Ciovec
+    base::Ptr{Cvoid}
+    len::Csize_t
 end
-struct FuseStatvfs
+struct Cstatvfs
+    bsize::Culong
+    frsize::Culong
+    blocks::Cfsblkcnt_t
+    bfree::Cfsblkcnt_t
+    bavail::Cfsblkcnt_t
+    files::Cfsfilcnt_t
+    ffree::Cfsfilcnt_t
+    favail::Cfsfilcnt_t
+    fsid::Clong
+    flag::Culong
+    namemax::Culong
+    __spare::NTuple{6,Cint}
 end
 
 struct FusePollHandle
@@ -249,7 +262,7 @@ function Cgetattr(req::Ptr{Nothing}, ino::FuseIno, fi::FuseFileInfo)
     end
 end
 F_SETATTR = 6
-function Csetattr(req::Ptr{Nothing}, ino::FuseIno, attr::FuseStat, to_set::Cint, fi::FuseFileInfo)
+function Csetattr(req::Ptr{Nothing}, ino::FuseIno, attr::Cstat, to_set::Cint, fi::FuseFileInfo)
     try
         fcallback(F_SETATTR, CStruct{FuseReq}(req), ino, attr, to_set, fi)
         # fuse_reply_attr(req, attr, attr_timeout)
@@ -432,14 +445,14 @@ function Ccreate(req::Ptr{Nothing}, parent::FuseIno, name::String, mode::FuseMod
     end
 end
 F_GETLK = 32
-function Cgetlk(req::Ptr{Nothing}, ino::FuseIno, fi::FuseFileInfo, lock::FuseFlock)
+function Cgetlk(req::Ptr{Nothing}, ino::FuseIno, fi::FuseFileInfo, lock::Cflock)
     try
         fcallback(F_GETLK, CStruct{FuseReq}(req), ino, fi, lock)
     finally
     end
 end
 F_SETLK = 33
-function Csetlk(req::Ptr{Nothing}, ino::FuseIno, fi::FuseFileInfo, lock::FuseFlock, sleep::Cint)
+function Csetlk(req::Ptr{Nothing}, ino::FuseIno, fi::FuseFileInfo, lock::Cflock, sleep::Cint)
     try
         fcallback(F_SETLK, CStruct{FuseReq}(req), ino, fi, lock, sleep)
     finally
@@ -532,7 +545,7 @@ ALL_FLO() = [
     (@cfunction Clookup  Cvoid (FuseReq, FuseIno, Cstring)),
     (@cfunction Cforget Cvoid (FuseReq, FuseIno, Culong)),
     (@cfunction Cgetattr Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo})),
-    (@cfunction Csetattr Cvoid (FuseReq, FuseIno, Ptr{FuseStat}, Cint, Ptr{FuseFileInfo})),
+    (@cfunction Csetattr Cvoid (FuseReq, FuseIno, Ptr{Cstat}, Cint, Ptr{FuseFileInfo})),
     (@cfunction Creadlink Cvoid (FuseReq, FuseIno)),
     (@cfunction Cmknod Cvoid (FuseReq, FuseIno, Cstring, FuseMode, FuseDev)),
     (@cfunction Cmkdir Cvoid (FuseReq, FuseIno, Cstring, FuseMode)),
@@ -557,9 +570,9 @@ ALL_FLO() = [
     (@cfunction Clistxattr Cvoid (FuseReq, FuseIno, Culong)),
     (@cfunction Cremovexattr Cvoid (FuseReq, FuseIno, Cstring)),
     (@cfunction Caccess Cvoid (FuseReq, FuseIno, Cint)),
-    (@cfunction Ccreate Cvoid (FuseReq, FuseIno, Cstring, FuseMode, Ptr{FuseFileStruct})),
-    (@cfunction Cgetlk Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo}, Ptr{FuseFlock})),
-    (@cfunction Csetlk Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo}, Ptr{FuseFlock}, Cint)),
+    (@cfunction Ccreate Cvoid (FuseReq, FuseIno, Cstring, FuseMode, Ptr{FuseFileInfo})),
+    (@cfunction Cgetlk Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo}, Ptr{Cflock})),
+    (@cfunction Csetlk Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo}, Ptr{Cflock}, Cint)),
     (@cfunction Cbmap Cvoid (FuseReq, FuseIno, Culong, Culong)),
     (@cfunction Cioctl Cvoid (FuseReq, FuseIno, Cuint, Ptr{Cvoid}, Ptr{FuseFileInfo}, Cuint, Ptr{Cvoid}, Culong, Culong)),
     (@cfunction Cpoll Cvoid (FuseReq, FuseIno, Ptr{FuseFileInfo}, Ptr{FusePollHandle})),
@@ -667,8 +680,8 @@ end
 
 # reply functions to be called inside callback functions
 
-function fuse_reply_attr(req::FuseReq, attr::CStruct{FuseStat}, attr_timeout::Real)
-    ccall((:fuse_reply_attr, :libfuse3), Cint, (FuseReq, Ptr{FuseStat}, Cdouble), req, attr, attr_timeout)
+function fuse_reply_attr(req::FuseReq, attr::CStruct{Cstat}, attr_timeout::Real)
+    ccall((:fuse_reply_attr, :libfuse3), Cint, (FuseReq, Ptr{Cstat}, Cdouble), req, attr, attr_timeout)
 end
 function fuse_reply_bmap(req::FuseReq, idx::Integer)
     ccall((:fuse_reply_bmap, :libfuse3), Cint, (FuseReq, UInt64), req, idx)
@@ -691,17 +704,17 @@ end
 function fuse_reply_ioctl(req::FuseReq, result::Integer, buf::CStruct, size::Integer)
     ccall((:fuse_reply_ioctl, :libfuse3), Cint, (FuseReq, Cint, Ptr{Nothing}, Csize_t), req, result, buf, size)
 end
-function fuse_reply_ioctl_iov(req::FuseReq, result::Integer, iov::CStruct{FuseIovec}, count::Integer)
-    ccall((:fuse_reply_ioctl_iov, :libfuse3), Cint, (FuseReq, Cint, Ptr{FuseIovec}, Cint), req, result, iov, count)
+function fuse_reply_ioctl_iov(req::FuseReq, result::Integer, iov::CStruct{Ciovec}, count::Integer)
+    ccall((:fuse_reply_ioctl_iov, :libfuse3), Cint, (FuseReq, Cint, Ptr{Ciovec}, Cint), req, result, iov, count)
 end
-function fuse_reply_ioctl_retry(req::FuseReq, in_iov::CStruct{FuseIovec}, in_count::Integer, out_iov::CStruct{FuseIovec}, out_count::Integer)
-    ccall((:fuse_reply_ioctl_retry, :libfuse3), Cint, (FuseReq, Ptr{FuseIovec}, Csize_t, Ptr{FuseIovec}, Csize_t), req, in_iov, in_count, out_iov, out_count)
+function fuse_reply_ioctl_retry(req::FuseReq, in_iov::CStruct{Ciovec}, in_count::Integer, out_iov::CStruct{Ciovec}, out_count::Integer)
+    ccall((:fuse_reply_ioctl_retry, :libfuse3), Cint, (FuseReq, Ptr{Ciovec}, Csize_t, Ptr{Ciovec}, Csize_t), req, in_iov, in_count, out_iov, out_count)
 end
-function fuse_reply_iov(req::FuseReq, iov::CStruct{FuseIovec}, count::Integer)
-    ccall((:fuse_reply_iov, :libfuse3), Cint, (FuseReq, Ptr{FuseIovec}, Cint), req, iov, count)
+function fuse_reply_iov(req::FuseReq, iov::CStruct{Ciovec}, count::Integer)
+    ccall((:fuse_reply_iov, :libfuse3), Cint, (FuseReq, Ptr{Ciovec}, Cint), req, iov, count)
 end
-function fuse_reply_lock(req::FuseReq, lock::CStruct{FuseFlock})
-    ccall((:fuse_reply_lock, :libfuse3), Cint, (FuseReq, Ptr{FuseFlock}), req, lock)
+function fuse_reply_lock(req::FuseReq, lock::CStruct{Cflock})
+    ccall((:fuse_reply_lock, :libfuse3), Cint, (FuseReq, Ptr{Cflock}), req, lock)
 end
 function fuse_reply_lseek(req::FuseReq, off::Integer)
     ccall((:fuse_reply_lseek, :libfuse3), Cint, (FuseReq, Coff_t), req, off)
@@ -718,8 +731,8 @@ end
 function fuse_reply_readlink(req::FuseReq, link::String)
     ccall((:fuse_reply_readlink, :libfuse3), Cint, (FuseReq, Cstring), req, link)
 end
-function fuse_reply_statfs(req::FuseReq, stbuf::CStruct{FuseStatvfs})
-    ccall((:fuse_reply_statfs, :libfuse3), Cint, (FuseReq, Ptr{FuseStatvfs}), req, stbuf)
+function fuse_reply_statfs(req::FuseReq, stbuf::CStruct{Cstatvfs})
+    ccall((:fuse_reply_statfs, :libfuse3), Cint, (FuseReq, Ptr{Cstatvfs}), req, stbuf)
 end
 function fuse_reply_write(req::FuseReq, count::Integer)
     ccall((:fuse_reply_write, :libfuse3), Cint, (FuseReq, Csize_t), req, count)
