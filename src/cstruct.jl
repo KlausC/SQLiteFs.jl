@@ -31,6 +31,10 @@ struct CStruct{T}
         isbitstype(T) || throw(ArgumentError("$T is not a bitstype"))
         new{T}(p)
     end
+    function CStruct{T}() where T
+        isbitstype(T) || throw(ArgumentError("$T is not a bitstype"))
+        new{T}(cstruct_bytes(T))
+    end
 end
 
 """
@@ -188,8 +192,8 @@ function pointer_for_index(cv::CVector{T}, i::Integer) where T
     Ptr{T}(getfield(cv, :pointer) + sizeof(T) * (i - 1))
 end
 
-Base.unsafe_convert(::Type{Ptr{T}}, cs::CStruct{T}) where T = getfield(cs, :pointer) 
-Base.unsafe_convert(::Type{Ptr{Vector{T}}}, cs::CVector{T}) where T = getfield(cs, :pointer) 
+Base.unsafe_convert(::Type{Ptr{T}}, cs::CStruct{T}) where T = Ptr{T}(getfield(cs, :pointer))
+Base.unsafe_convert(::Type{Ptr{Vector{T}}}, cs::CVector{T}) where T = Ptr{Vector{T}}(getfield(cs, :pointer)) 
 """
     p = pointer_from_vector(a::Vector{T})::Ptr{T}
 
