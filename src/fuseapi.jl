@@ -1,17 +1,18 @@
 
-export FuseLowlevelOps, register, main_loop, filter_ops
+export FuseLowlevelOps, register, main_loop
 
 import Base.CFunction
 
 const CFu = Ptr{Cvoid}
 
-struct FuseLoopConfig <: Layout
+struct FuseLoopConfig
     clone_fd::Cint
     max_idle_threads::Cuint
 end
-struct FuseArgs
+
+struct FuseArgs <: Layout
     argc::Cint
-    argv::Ptr{Nothing}
+    argv::Ptr{LVarVector{Cstring, (x) -> x.argc}}
     allocated::Cint
 end
 
@@ -129,8 +130,8 @@ struct Cstat <: Layout
     ino     :: UInt64
     nlink   :: UInt64
     mode    :: FuseMode
-    uid     :: UInt32
-    gid     :: UInt32
+    uid     :: Cuid_t
+    gid     :: Cgid_t
     pad0    :: UInt32
     rdev    :: UInt64
     size    :: Int64
@@ -147,6 +148,32 @@ struct FuseEntryParam <: Layout
     attr_timeout::Cdouble
     entry_timeout::Cdouble
 end
+
+# Capability bits for 'fuse_conn_info.capable' and 'fuse_conn_info.want'
+ 
+const FUSE_CAP_ASYNC_READ = Cuint(1 << 0)
+const FUSE_CAP_POSIX_LOCKS = Cuint(1 << 1)
+const FUSE_CAP_ATOMIC_O_TRUNC = Cuint(1 << 3)
+const FUSE_CAP_EXPORT_SUPPORT = Cuint(1 << 4)
+const FUSE_CAP_DONT_MASK = Cuint(1 << 6)
+const FUSE_CAP_SPLICE_WRITE = Cuint(1 << 7)
+const FUSE_CAP_SPLICE_MOVE = Cuint(1 << 8)
+const FUSE_CAP_SPLICE_READ = Cuint(1 << 9)
+const FUSE_CAP_FLOCK_LOCKS = Cuint(1 << 10)
+const FUSE_CAP_IOCTL_DIR = Cuint(1 << 11)
+const FUSE_CAP_AUTO_INVAL_DATA = Cuint(1 << 12)
+const FUSE_CAP_READDIRPLUS = Cuint(1 << 13)
+const FUSE_CAP_READDIRPLUS_AUTO = Cuint(1 << 14)
+const FUSE_CAP_ASYNC_DIO = Cuint(1 << 15)
+const FUSE_CAP_WRITEBACK_CACHE = Cuint(1 << 16)
+const FUSE_CAP_NO_OPEN_SUPPORT = Cuint(1 << 17)
+const FUSE_CAP_PARALLEL_DIROPS = Cuint(1 << 18)
+const FUSE_CAP_POSIX_ACL = Cuint(1 << 19)
+const FUSE_CAP_HANDLE_KILLPRIV = Cuint(1 << 20)
+const FUSE_CAP_CACHE_SYMLINKS = Cuint(1 << 23) 
+const FUSE_CAP_NO_OPENDIR_SUPPORT = Cuint(1 << 24)
+const FUSE_CAP_EXPLICIT_INVAL_DATA = Cuint(1 << 25)
+
 struct FuseConnInfo <: Layout
     proto_major::Cuint
     proto_minor::Cuint
@@ -160,6 +187,15 @@ struct FuseConnInfo <: Layout
     time_gran::Cuint
     reserved::LFixedVector{Cuint,22}
 end
+
+# bit masks for 2nd field of FuseFileInfo
+const FUSE_FI_WRITEPAGE = Cuint(1 << 0)
+const FUSE_FI_DIRECT_IO = Cuint(1 << 1)
+const FUSE_FI_KEEP_CACHE = Cuint(1 << 2)
+const FUSE_FI_FLUSH = Cuint(1 << 3)
+const FUSE_FI_NONSEEKABLE = Cuint(1 << 4)
+const FUSE_FI_CACHE_READDIR = Cuint(1 << 5)
+
 struct FuseFileInfo <: Layout
     flags::Cint
     bits::Cuint
@@ -211,6 +247,12 @@ struct FuseBufvec <: Layout
 end
 struct FuseForgetData
 end
+
+const FUSE_IOCTL_COMPAT = Cuint(1 << 0)
+const FUSE_IOCTL_UNRESTRICTED = Cuint(1 << 1)
+const FUSE_IOCTL_RETRY = Cuint(1 << 2)
+const FUSE_IOCTL_DIR = Cuint(1 << 4)
+const FUSE_IOCTL_MAX_IOV = 256
 
 # C- entrypoints for all lowlevel callback functions
 
@@ -433,7 +475,7 @@ end
 F_ACCESS = 30
 function Caccess(req::Ptr{Nothing}, ino::FuseIno, mask::Cint)
     try
-        fcallback(F_ACCESS, CStruct{FuseReq}(req), ino)
+        fcallback(F_ACCESS, CStruct{FuseReq}(req), ino, mask)
     finally
     end
 end
@@ -586,44 +628,6 @@ ALL_FLO() = [
     (@cfunction Clseek Cvoid (FuseReq, FuseIno, Culong, Cint, Ptr{FuseFileInfo}))
 ]
 
-# bit masks for 2nd field of FuseFileInfo
-const FUSE_FI_WRITEPAGE = Cuint(1 << 0)
-const FUSE_FI_DIRECT_IO = Cuint(1 << 1)
-const FUSE_FI_KEEP_CACHE = Cuint(1 << 2)
-const FUSE_FI_FLUSH = Cuint(1 << 3)
-const FUSE_FI_NONSEEKABLE = Cuint(1 << 4)
-const FUSE_FI_CACHE_READDIR = Cuint(1 << 5)
-
-# Capability bits for 'fuse_conn_info.capable' and 'fuse_conn_info.want'
- 
-const FUSE_CAP_ASYNC_READ = Cuint(1 << 0)
-const FUSE_CAP_POSIX_LOCKS = Cuint(1 << 1)
-const FUSE_CAP_ATOMIC_O_TRUNC = Cuint(1 << 3)
-const FUSE_CAP_EXPORT_SUPPORT = Cuint(1 << 4)
-const FUSE_CAP_DONT_MASK = Cuint(1 << 6)
-const FUSE_CAP_SPLICE_WRITE = Cuint(1 << 7)
-const FUSE_CAP_SPLICE_MOVE = Cuint(1 << 8)
-const FUSE_CAP_SPLICE_READ = Cuint(1 << 9)
-const FUSE_CAP_FLOCK_LOCKS = Cuint(1 << 10)
-const FUSE_CAP_IOCTL_DIR = Cuint(1 << 11)
-const FUSE_CAP_AUTO_INVAL_DATA = Cuint(1 << 12)
-const FUSE_CAP_READDIRPLUS = Cuint(1 << 13)
-const FUSE_CAP_READDIRPLUS_AUTO = Cuint(1 << 14)
-const FUSE_CAP_ASYNC_DIO = Cuint(1 << 15)
-const FUSE_CAP_WRITEBACK_CACHE = Cuint(1 << 16)
-const FUSE_CAP_NO_OPEN_SUPPORT = Cuint(1 << 17)
-const FUSE_CAP_PARALLEL_DIROPS = Cuint(1 << 18)
-const FUSE_CAP_POSIX_ACL = Cuint(1 << 19)
-const FUSE_CAP_HANDLE_KILLPRIV = Cuint(1 << 20)
-const FUSE_CAP_CACHE_SYMLINKS = Cuint(1 << 23) 
-const FUSE_CAP_NO_OPENDIR_SUPPORT = Cuint(1 << 24)
-const FUSE_CAP_EXPLICIT_INVAL_DATA = Cuint(1 << 25)
- 
-const FUSE_IOCTL_COMPAT = Cuint(1 << 0)
-const FUSE_IOCTL_UNRESTRICTED = Cuint(1 << 1)
-const FUSE_IOCTL_RETRY = Cuint(1 << 2)
-const FUSE_IOCTL_DIR = Cuint(1 << 4)
-const FUSE_IOCTL_MAX_IOV = 256
 
 # dummy function - should never by actually called
 noop(args...) = nothing
@@ -651,28 +655,36 @@ function filter_ops(all::Vector, reg::Vector{Function})
 end
 
 function create_args(CMD::String, ARGS::AbstractVector{String})
-    argc = Cint(length(ARGS))
-    argv = Vector{Cstring}(undef, argc + 2)
-    argv[1] = Base.unsafe_convert(Cstring, CMD)
+    argc = length(ARGS)
+    data = create_bytes(FuseArgs, argc + 2)
+    args = CStruct{FuseArgs}(pointer_from_vector(data))
+    argv = args.argv
+    args.argc = argc + 1
+    argv[1] = CMD
     for i = 1:argc
-        argv[i+1] = Base.unsafe_convert(Cstring, ARGS[i])
+        argv[i+1] = ARGS[i]
     end
-    argv[argc+2] = Cstring(C_NULL)
-    FuseArgs(argc, pointer_from_vector(argv), 0)
+    data
 end
 
-function main_loop()
+function main_loop(args::AbstractVector{String})
 
-    fuseargs = SQLiteFs.create_args("command", ["mounti"])
-    ops = filter_ops(ALL_FLO(), regops())
-    println("OPS for Clookup: $(ops[F_LOOKUP])")
+    fuseargs = CStructGuided{FuseArgs}(create_args("command", args))
+    opts = fuse_parse_cmdline(fuseargs)
+
+    callbacks = filter_ops(ALL_FLO(), regops())
 
     se = ccall((:fuse_session_new, :libfuse3), Ptr{Nothing},
-        (Ref{FuseArgs}, Ptr{CFu}, Cint, Ptr{Nothing}),
-        fuseargs, ops, 44, C_NULL)
+        (Ptr{FuseArgs}, Ptr{CFu}, Cint, Ptr{Nothing}),
+        fuseargs, callbacks, length(callbacks), C_NULL)
 
-    rc = ccall((:fuse_session_mount, :libfuse3), Cint, (Ptr{Nothing}, Cstring), se, "mountpoint")
+    se == C_NULL && throw(ArgumentError("fuse_session_new failed"))
+
+    rc = ccall((:fuse_session_mount, :libfuse3), Cint, (Ptr{Nothing}, Cstring), se, opts.mountpoint)
+    rc != 0 && throw(ArgumentError("fuse_session_mount failed"))
+
     rc = ccall((:fuse_session_loop, :libfuse3), Cint, (Ptr{Nothing},), se)
+    rc != 0 && throw(ArgumentError("fuse_session_loop failed"))
 
     ccall((:fuse_session_unmount, :libfuse3), Cvoid, (Ptr{Nothing},), se)
     ccall((:fuse_session_destroy, :libfuse3), Cvoid, (Ptr{Nothing},), se)
@@ -761,6 +773,12 @@ function fuse_req_userdata(req::FuseReq, ::Type{T}) where T
     unsafe_pointer_to_objref(ccall((:fuse_req_userdata, :libfuse3), Ptr{T}, (FuseReq,), req))
 end
 
+function fuse_parse_cmdline(args::CStructAccess{FuseArgs})
+    opts = create_bytes(FuseCmdlineOpts, ())
+    popts = pointer_from_vector(opts)
+    ccall((:fuse_parse_cmdline, :libfuse3), Cint, (Ptr{FuseArgs}, Ptr{UInt8}), args, popts)
+    CStructGuided{FuseCmdlineOpts}(opts)
+end
 
 
 

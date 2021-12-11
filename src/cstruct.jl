@@ -2,7 +2,10 @@
 export Caccessor, CStruct, CVector
 export pointer_from_vector
 
-import Base: length, getproperty, setproperty!, size, length
+import Base: length, size, pointer, show, unsafe_convert, Fix1
+import Base: propertynames, getproperty, setproperty!, getindex, setindex!
+
+abstract type CStructAccess{T} end
 
 """
 CStruct{T}(p::Ptr)
@@ -24,16 +27,20 @@ cs = CStruct{T}(p)
 cs.a = 1234
 cs.b = 3.5
 """
-
-struct CStruct{T}
+struct CStruct{T} <: CStructAccess{T}
     pointer::Ptr{Nothing}
     function CStruct{T}(p::Ptr) where T
         isbitstype(T) || throw(ArgumentError("$T is not a bitstype"))
         new{T}(p)
     end
-    function CStruct{T}() where T
-        isbitstype(T) || throw(ArgumentError("$T is not a bitstype"))
-        new{T}(cstruct_bytes(T))
+    CStruct{T}(data) where T = CStruct{T}(pointer_from_vector(data))
+end
+
+struct CStructGuided{T,D} <: CStructAccess{T}
+    cs::CStruct{T}
+    guide::Vector{D}
+    function CStructGuided{T}(data::Vector{D}) where {T,D<:Union{Integer,Ptr}}
+        new{T,D}(CStruct{T}(data), data)
     end
 end
 
@@ -55,30 +62,31 @@ end
 const CAccessor = Union{CStruct, CVector}
 # accessing the fields represented by CStruct
 # to access the pointer use function `pointer`
-function Base.propertynames(::CStruct{T}) where T
-    fieldnames(T)
-end
+propertynames(::CStruct{T}) where T = fieldnames(T)
+propertynames(::CStructGuided{T}) where T = fieldnames(T)
 
-function Base.getproperty(cs::CStruct{T}, field::Symbol) where T
+function getproperty(cs::CStruct{T}, field::Symbol) where T
     fp = pointer_for_field(cs, field)
     get_from_pointer(fp, cs)
 end
+getproperty(sg::CStructGuided, field::Symbol) = getproperty(getfield(sg, :cs), field)
 
-function Base.setproperty!(cs::CStruct{T}, field::Symbol, v) where T
+function setproperty!(cs::CStruct{T}, field::Symbol, v) where T
     fp = pointer_for_field(cs, field)
     set_at_pointer!(fp, v)
 end
+setproperty!(sg::CStructGuided, field::Symbol, v) = setproperty!(getfield(sg, :cs), field, v)
 
-function Base.getindex(cv::CVector{T}, i::Integer) where T
+function getindex(cv::CVector{T}, i::Integer) where T
     p = pointer_for_index(cv, i)
     get_from_pointer(p, cv)
 end
 
-function Base.getindex(cv::CVector{T}, r::OrdinalRange) where T
+function getindex(cv::CVector{T}, r::OrdinalRange) where T
     [getindex(cv, i) for i in r]
 end
 
-function Base.setindex!(cv::CVector{T}, v, i::Integer) where T
+function setindex!(cv::CVector{T}, v, i::Integer) where T
     p = pointer_for_index(cv, i)
     set_at_pointer!(p, v)
 end
@@ -93,12 +101,12 @@ get the internal fields of accessors
 """
 pointer(cs::CAccessor) = getfield(cs, :pointer)
 length(cv::CVector) = getfield(cv, :length)
+pointer(sg::CStructGuided) = pointer(getfield(sg, :cs))
 
-function Base.show(io::IO, x::CStruct{T}) where T
+function show(io::IO, x::CStructAccess{T}) where T
     show(io, typeof(x))
     print(io, '(')
     nf = length(T.types)
-    px = pointer(x)
     if !Base.show_circular(io, x)
         recur_io = IOContext(io, Pair{Symbol,Any}(:SHOWN_SET, x),
                                  Pair{Symbol,Any}(:typeinfo, Any))
@@ -113,7 +121,7 @@ function Base.show(io::IO, x::CStruct{T}) where T
     print(io, ')')
 end
 
-function Base.show(io::IO, x::CVector{T}) where T
+function show(io::IO, x::CVector{T}) where T
     show(io, typeof(x))
     print(io, '[')
     nf = length(x)
@@ -154,7 +162,7 @@ end
 
 function get_from_pointer(fp::Ptr{FT}, parent) where FT <: Cstring
     v = unsafe_load(fp)
-    v == Cstring(C_NULL) ? "" : Base.unsafe_string(Ptr{UInt8}(v))
+    v == Cstring(C_NULL) ? "" : unsafe_string(Ptr{UInt8}(v))
 end
 
 function get_from_pointer(fp::Ptr{FT}, parent) where FT
@@ -171,7 +179,7 @@ end
 Convert to C primitive or composed object. Store bytes at memory position.
 """
 function set_at_pointer!(fp::Ptr{FT}, v) where FT
-    w = Base.unsafe_convert(FT, Base.cconvert(FT, v))
+    w = unsafe_convert(FT, Base.cconvert(FT, v))
     unsafe_store!(fp, w)
 end
 
@@ -183,7 +191,7 @@ The pointer has type `Ptr{fieldtype(T, i)}` with `i` the number of the field
 within struct type `T`. 
 """
 function pointer_for_field(cs::CStruct{T}, field::Symbol) where T
-    i = findfirst(Base.Fix1(isequal, field), fieldnames(T))
+    i = findfirst(Fix1(isequal, field), fieldnames(T))
     i === nothing && throw(ArgumentError("type $T has no field $field"))
     Ptr{fieldtype(T, i)}(getfield(cs, :pointer) + fieldoffset(T, i))
 end
@@ -192,8 +200,8 @@ function pointer_for_index(cv::CVector{T}, i::Integer) where T
     Ptr{T}(getfield(cv, :pointer) + sizeof(T) * (i - 1))
 end
 
-Base.unsafe_convert(::Type{Ptr{T}}, cs::CStruct{T}) where T = Ptr{T}(getfield(cs, :pointer))
-Base.unsafe_convert(::Type{Ptr{Vector{T}}}, cs::CVector{T}) where T = Ptr{Vector{T}}(getfield(cs, :pointer)) 
+unsafe_convert(::Type{Ptr{T}}, cs::CStructAccess{T}) where T = Ptr{T}(pointer(cs))
+unsafe_convert(::Type{Ptr{Vector{T}}}, cs::CVector{T}) where T = Ptr{Vector{T}}(pointer(cs))
 """
     p = pointer_from_vector(a::Vector{T})::Ptr{T}
 
@@ -207,4 +215,4 @@ Given `p` it is possible to access arbitrary bits data by byte offset and type `
 This function is mainly used to simulate a C memory in the data
 area of vector `a`.
 """
-pointer_from_vector(a::Vector{T}) where T = Base.unsafe_convert(Ptr{T}, a)
+pointer_from_vector(a::Vector{T}) where T = unsafe_convert(Ptr{T}, a)

@@ -140,8 +140,7 @@ function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where T
     len = simple_size(T, veclens)
     off = offset
     ptr = pointer_from_vector(bytes) + off
-    noff = off + len
-    nptr = ptr + len
+    noff = align(len)
     j = 0
     for i = 1:fieldcount(T)
         f = fieldoffset(T, i)
@@ -151,66 +150,65 @@ function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where T
         vl = is_template_variable(F, true) ? veclens[j += 1] : ()
 
         if F <: Union{Ptr,LForwardReference}
-            unsafe_store!(Ptr{Ptr{Nothing}}(p), nptr)
-            len = create_bytes!(bytes, eltype(F), noff, vl)
-            noff += len
-            nptr += len
+            unsafe_store!(Ptr{Ptr{Nothing}}(p), ptr + noff)
+            len = create_bytes!(bytes, eltype(F), noff + offset, vl)
+            noff += align(noff + len)
         else
             create_bytes!(bytes, F, off, vl)
         end
     end
-    noff - offset
+    noff
 end
 
 function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where {N,F,T<:LFixedVector{F,N}}
     len = simple_size(T, veclens)
     off = offset
     ptr = pointer_from_vector(bytes) + off
-    noff = off + len
+    noff = align(len)
     j = 0
     for i = 1:N
         vl = is_template_variable(F, true) ? veclens[j += 1] : ()
         f = simple_size(F, vl) * (i - 1)
-        p = ptr + f
-        off = offset + f
 
         if F <: Union{Ptr,LForwardReference}
-            unsafe_store!(p, nptr)
-            len = create_bytes!(bytes, eltype(F), noff, vl)
-            noff += len
+            unsafe_store!(ptr + f, nptr)
+            len = create_bytes!(bytes, eltype(F), noff + offset, vl)
+            noff = align(noff + len)
         else
-            create_bytes!(bytes, F, off, vl)
+            create_bytes!(bytes, F, offset + f, vl)
         end
     end
-    noff - offset
+    noff
 end
 function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where {F,T<:LVarVector{F}}
     len = simple_size(T, veclens)
-    off = offset
-    ptr = pointer_from_vector(bytes) + off
-    noff = off + len
+    ptr = pointer_from_vector(bytes) + offset
+    noff = align(len)
     vlen(i) = i <= length(veclens) ? veclens[i] : ()
     j = 0
     N = vlen(j += 1)
     for i = 1:N
         vl = is_template_variable(F, true) ? vlen(j += 1) : ()
         f = simple_size(F, vl) * (i - 1)
-        p = ptr + f
-        off = offset + f
 
         if F <: Union{Ptr,LForwardReference}
-            unsafe_store!(p, nptr)
-            len = create_bytes!(bytes, eltype(F), noff, vl)
-            noff += len
+            unsafe_store!(ptr + f, ptr + noff)
+            len = create_bytes!(bytes, eltype(F), noff + offset, vl)
+            noff = align(noff + len)
         else
-            create_bytes!(bytes, F, off, vl)
+            create_bytes!(bytes, F, offset + f, vl)
         end
     end
-    noff - offset
+    noff
 end
 
 function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where T
     simple_size(T, ())
+end
+
+function align(p::Integer, s::Integer=sizeof(Ptr)) # s must be 2^n
+    t = s - 1
+    (p + t )  & ~t
 end
 
 simple_size(T::Type, veclens) = blength(T, veclens, Val(false))
@@ -254,7 +252,7 @@ end
 blength(::Type{T}, veclens, ::Val) where T = sizeof(T)
 
 function blength_f(T, ::Type{F}, veclens, j, s, v::Val{P}) where {P,F}
-    if is_template_variable(F)
+    if is_template_variable(F, true)
         j += 1
         if j > length(veclens)
             throw(ArgumentError("not enough variable length specifiers for $T"))
