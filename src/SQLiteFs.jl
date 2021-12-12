@@ -13,6 +13,7 @@ end
 include("layout.jl")
 include("cstruct.jl")
 include("fuseapi.jl")
+include("fusebridge.jl")
 include("initdb.jl")
 include("filesystem.jl")
 

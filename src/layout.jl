@@ -129,10 +129,11 @@ Return a `Vector{UInt8}` capable of keeping all data of an object of type `T`
 including structure subfields. Ptr-fields are populated with correct pointers into 
 the same vector recursively.
 """
-function create_bytes(::Type{T}, veclens) where T
-    n = total_size(T, veclens)
+function create_bytes(::Type{T}, veclens=()) where T
+    n = total_size(T, veclens) * 2
     buf = fill(UInt8(0x0), n)
     m = create_bytes!(buf, T, 0, veclens)
+    resize!(buf, m)
     buf
 end
 
@@ -140,7 +141,7 @@ function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where T
     len = simple_size(T, veclens)
     off = offset
     ptr = pointer_from_vector(bytes) + off
-    noff = align(len)
+    noff = len
     j = 0
     for i = 1:fieldcount(T)
         f = fieldoffset(T, i)
@@ -150,9 +151,10 @@ function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where T
         vl = is_template_variable(F, true) ? veclens[j += 1] : ()
 
         if F <: Union{Ptr,LForwardReference}
+            noff = align(noff)
             unsafe_store!(Ptr{Ptr{Nothing}}(p), ptr + noff)
             len = create_bytes!(bytes, eltype(F), noff + offset, vl)
-            noff += align(noff + len)
+            noff += len
         else
             create_bytes!(bytes, F, off, vl)
         end
@@ -164,16 +166,17 @@ function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where {
     len = simple_size(T, veclens)
     off = offset
     ptr = pointer_from_vector(bytes) + off
-    noff = align(len)
+    noff = len
     j = 0
     for i = 1:N
         vl = is_template_variable(F, true) ? veclens[j += 1] : ()
         f = simple_size(F, vl) * (i - 1)
 
         if F <: Union{Ptr,LForwardReference}
-            unsafe_store!(ptr + f, nptr)
-            len = create_bytes!(bytes, eltype(F), noff + offset, vl)
-            noff = align(noff + len)
+            noff = align(noff)
+            unsafe_store!(ptr + f, ptr + noff)
+            len = create_bytes!(bytes, eltype(F), noff + off, vl)
+            noff += len
         else
             create_bytes!(bytes, F, offset + f, vl)
         end
@@ -182,8 +185,9 @@ function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where {
 end
 function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where {F,T<:LVarVector{F}}
     len = simple_size(T, veclens)
-    ptr = pointer_from_vector(bytes) + offset
-    noff = align(len)
+    off = offset
+    ptr = pointer_from_vector(bytes) + off
+    noff = len
     vlen(i) = i <= length(veclens) ? veclens[i] : ()
     j = 0
     N = vlen(j += 1)
@@ -192,17 +196,18 @@ function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where {
         f = simple_size(F, vl) * (i - 1)
 
         if F <: Union{Ptr,LForwardReference}
+            noff = align(noff)
             unsafe_store!(ptr + f, ptr + noff)
-            len = create_bytes!(bytes, eltype(F), noff + offset, vl)
-            noff = align(noff + len)
+            len = create_bytes!(bytes, eltype(F), noff + off, vl)
+            noff += len
         else
-            create_bytes!(bytes, F, offset + f, vl)
+            create_bytes!(bytes, F, off + f, vl)
         end
     end
     noff
 end
 
-function create_bytes!(bytes::Vector{UInt8}, ::Type{T}, offset, veclens) where T
+function create_bytes!(::Vector{UInt8}, ::Type{T}, offset, veclens) where T
     simple_size(T, ())
 end
 
@@ -217,8 +222,8 @@ total_size(T::Type, veclens) = blength(T, veclens, Val(true))
 function blength(::Type{T}, veclens, v::Val{P}) where {P,F,N,T<:LFixedVector{F,N}}
     s = sizeof(T)
     j = 0
-    for i = 1:N
-        j, s = blength_f(T, F, veclens, j, s, v)
+    for _ = 1:N
+        j, s = blength_helper(F, veclens, j, s, v, T)
     end
     if j < length(veclens)
         throw(ArgumentError("too many variable length specifiers for $T only $j are needed"))
@@ -241,7 +246,7 @@ function blength(::Type{T}, veclens, v::Val{P}) where {P,T<:Layout}
     j = 0
     for i = 1:fieldcount(T)
         F = fieldtype(T, i)
-        j, s = blength_f(T, F, veclens, j, s, v)
+        j, s = blength_helper(F, veclens, j, s, v, T)
     end
     if j < length(veclens)
         throw(ArgumentError("too many variable length specifiers for $T- only $j are needed"))
@@ -251,7 +256,7 @@ end
 
 blength(::Type{T}, veclens, ::Val) where T = sizeof(T)
 
-function blength_f(T, ::Type{F}, veclens, j, s, v::Val{P}) where {P,F}
+function blength_helper(::Type{F}, veclens, j, s, v::Val{P}, T) where {P,F}
     if is_template_variable(F, true)
         j += 1
         if j > length(veclens)
@@ -261,6 +266,8 @@ function blength_f(T, ::Type{F}, veclens, j, s, v::Val{P}) where {P,F}
     else
         vl = ()
     end
+    al = Base.datatype_alignment(F)
+    s = align(s, al)
     s += F <: LVarVector ? blength(F, vl, v) :
         P && F <: Union{Ptr,LForwardReference} ? blength(eltype(F), vl, v) : 0
 

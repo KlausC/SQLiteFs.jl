@@ -1,5 +1,5 @@
 
-export Caccessor, CStruct, CVector
+export Caccessor, CStruct, CVector, CStructAccess
 export pointer_from_vector
 
 import Base: length, size, pointer, show, unsafe_convert, Fix1
@@ -34,6 +34,8 @@ struct CStruct{T} <: CStructAccess{T}
         new{T}(p)
     end
     CStruct{T}(data) where T = CStruct{T}(pointer_from_vector(data))
+    CStruct(data) = CStruct(pointer_from_vector(data))
+    CStruct(p::Ptr{T}) where T = CStruct{T}(p)
 end
 
 struct CStructGuided{T,D} <: CStructAccess{T}
@@ -43,6 +45,7 @@ struct CStructGuided{T,D} <: CStructAccess{T}
         new{T,D}(CStruct{T}(data), data)
     end
 end
+CStructGuided(::Type{T}, veclens=()) where T = CStructGuided{T}(create_bytes(T, veclens))
 
 """
     CVector
