@@ -1,6 +1,7 @@
 
 export FuseLowlevelOps, register, main_loop
-export FuseFileInfo, Cstat, Cflock
+export FuseFileInfo, FuseEntryParam, FuseArgs, FuseCmdlineOpts, FuseReq, FuseIno
+export Cstat, Cflock
 
 import Base.CFunction
 
@@ -258,7 +259,7 @@ const FUSE_IOCTL_MAX_IOV = 256
 
 
 # dummy function - should never by actually called
-noop(args...) = nothing
+noop(args...) = UV_ENOTSUP
 const REGISTERED = Function[noop for i = 1:F_SIZE]
 regops() = REGISTERED
 # utility functions
@@ -282,6 +283,27 @@ function filter_ops(all::Vector, reg::Vector{Function})
     [reg[i] == noop ? C_NULL : all[i] for i in eachindex(all)]
 end
 
+function filter_ops(fs::Module)
+    all = ALL_FLO()
+    res = fill(C_NULL, length(fieldnames(FuseLowlevelOps)))
+    ro = regops()
+    for (i, f) in enumerate(fieldnames(FuseLowlevelOps))
+        if (c = getp(fs, f, noop)) != noop
+            res[i] = all[i]
+            ro[i] = c
+        end     
+    end
+    res
+end
+
+function getp(m, f::Symbol, def)
+    try
+        getproperty(m, f)
+    catch
+        def
+    end
+end
+
 function create_args(CMD::String, arg::AbstractVector{String})
     argc = length(arg)
     data = create_bytes(FuseArgs, argc + 2)
@@ -295,12 +317,12 @@ function create_args(CMD::String, arg::AbstractVector{String})
     args
 end
 
-function main_loop(args::AbstractVector{String})
+function main_loop(args::AbstractVector{String}, fs::Module)
 
     fargs = create_args("command", args)
     opts = fuse_parse_cmdline(fargs)
 
-    callbacks = filter_ops(ALL_FLO(), regops())
+    callbacks = filter_ops(fs)
 
     se = ccall((:fuse_session_new, :libfuse3), Ptr{Nothing},
         (Ptr{FuseArgs}, Ptr{CFu}, Cint, Ptr{Nothing}),
@@ -320,7 +342,7 @@ end
 
 
 function fuse_parse_cmdline(args::CStructAccess{FuseArgs})
-    opts = create_bytes(FuseCmdlineOpts, ())
+    opts = create_bytes(FuseCmdlineOpts)
     popts = pointer_from_vector(opts)
     ccall((:fuse_parse_cmdline, :libfuse3), Cint, (Ptr{FuseArgs}, Ptr{UInt8}), args, popts)
     CStructGuided{FuseCmdlineOpts}(opts)

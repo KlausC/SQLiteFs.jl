@@ -17,6 +17,8 @@ include("fusebridge.jl")
 include("initdb.jl")
 include("filesystem.jl")
 
+include("examplefs.jl")
+
 function _umask()
     umask = mktempdir() do tmp
         s = mkdir(joinpath(tmp, "stest"))
